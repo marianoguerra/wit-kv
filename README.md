@@ -233,7 +233,8 @@ wit-kv get users alice --binary > alice.bin
 │  lower/lift commands  │  KV store commands  │  map/reduce   │
 ├───────────────────────┴─────────────────────┴───────────────┤
 │                    CanonicalAbi encoder                     │
-│              (lower_with_memory / lift_with_memory)         │
+│    Text I/O: lower_with_memory / lift_with_memory (WAVE)    │
+│    Hot path: lower_from_val / lift_to_val (wasmtime::Val)   │
 ├─────────────────────────────────────────────────────────────┤
 │  wit-parser (WIT types)  │  wasm-wave (WAVE text format)    │
 ├──────────────────────────┴──────────────────────────────────┤
@@ -381,6 +382,7 @@ let value = store.get("users", "alice")?;
 ```bash
 cargo test              # Unit and integration tests
 just smoke-test         # Full suite: tests + usage demo + map/reduce
+just test-errors        # Error handling verification
 ./scripts/usage-example.sh  # Interactive CLI demonstration
 ```
 
