@@ -31,15 +31,15 @@ build-sum-scores:
 
 # Build typed-point-filter component (uses cargo-component)
 build-typed-point-filter:
-    cd examples/typed-point-filter && cargo component build --release
+    cd examples/typed-point-filter && cargo component build --release --target wasm32-unknown-unknown
 
 # Build typed-person-filter component (uses cargo-component)
 build-typed-person-filter:
-    cd examples/typed-person-filter && cargo component build --release
+    cd examples/typed-person-filter && cargo component build --release --target wasm32-unknown-unknown
 
 # Build typed-sum-scores component (uses cargo-component)
 build-typed-sum-scores:
-    cd examples/typed-sum-scores && cargo component build --release
+    cd examples/typed-sum-scores && cargo component build --release --target wasm32-unknown-unknown
 
 # Run all tests
 test:
@@ -182,7 +182,7 @@ smoke-test: build build-examples
 
     echo ">>> Testing typed map with typed-point-filter..."
     OUTPUT=$(./target/release/wit-kv map points \
-        --module ./examples/typed-point-filter/target/wasm32-wasip1/release/typed_point_filter.wasm \
+        --module ./examples/typed-point-filter/target/wasm32-unknown-unknown/release/typed_point_filter.wasm \
         --module-wit ./examples/typed-point-filter/wit/typed-map.wit \
         --input-type point \
         --path /tmp/smoke-test-kv 2>&1)
@@ -199,7 +199,7 @@ smoke-test: build build-examples
     echo ">>> Testing typed map with typed-person-filter..."
     # Reuse the users keyspace (already has person type compatible data)
     OUTPUT=$(./target/release/wit-kv map users \
-        --module ./examples/typed-person-filter/target/wasm32-wasip1/release/typed_person_filter.wasm \
+        --module ./examples/typed-person-filter/target/wasm32-unknown-unknown/release/typed_person_filter.wasm \
         --module-wit ./examples/typed-person-filter/wit/typed-map.wit \
         --input-type person \
         --path /tmp/smoke-test-kv 2>&1)
@@ -215,7 +215,7 @@ smoke-test: build build-examples
 
     echo ">>> Testing typed reduce with typed-sum-scores..."
     OUTPUT=$(./target/release/wit-kv reduce users \
-        --module ./examples/typed-sum-scores/target/wasm32-wasip1/release/typed_sum_scores.wasm \
+        --module ./examples/typed-sum-scores/target/wasm32-unknown-unknown/release/typed_sum_scores.wasm \
         --module-wit ./examples/typed-sum-scores/wit/typed-reduce.wit \
         --input-type person \
         --state-type total \

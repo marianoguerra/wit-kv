@@ -178,13 +178,13 @@ wit-kv get users alice --binary > alice.bin
 ```bash
 # Typed map: filter points within radius 100, double coordinates
 wit-kv map points \
-  --module ./examples/typed-point-filter/target/wasm32-wasip1/release/typed_point_filter.wasm \
+  --module ./examples/typed-point-filter/target/wasm32-unknown-unknown/release/typed_point_filter.wasm \
   --module-wit ./examples/typed-point-filter/wit/typed-map.wit \
   --input-type point
 
 # Typed reduce: sum all scores with typed state
 wit-kv reduce users \
-  --module ./examples/typed-sum-scores/target/wasm32-wasip1/release/typed_sum_scores.wasm \
+  --module ./examples/typed-sum-scores/target/wasm32-unknown-unknown/release/typed_sum_scores.wasm \
   --module-wit ./examples/typed-sum-scores/wit/typed-reduce.wit \
   --input-type person \
   --state-type total
