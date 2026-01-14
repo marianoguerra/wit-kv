@@ -287,7 +287,7 @@ impl<'a> CanonicalAbi<'a> {
                     .sizes
                     .field_offsets(r.fields.iter().map(|f| &f.ty))
                     .into_iter()
-                    .map(|(off, ty)| (off.size_wasm32(), ty.clone()))
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
                     .collect();
                 let wave_fields: Vec<_> = wave_ty.record_fields().collect();
                 let field_values: Vec<_> = value.unwrap_record().collect();
@@ -297,7 +297,7 @@ impl<'a> CanonicalAbi<'a> {
                     let (_, wave_field_ty) = &wave_fields[i];
                     let (_, field_val) = &field_values[i];
                     self.lower_into(
-                        &field_val.clone().into_owned(),
+                        &field_val.clone(),
                         &field_def.ty,
                         wave_field_ty,
                         buffer,
@@ -311,7 +311,7 @@ impl<'a> CanonicalAbi<'a> {
                     .sizes
                     .field_offsets(t.types.iter())
                     .into_iter()
-                    .map(|(off, ty)| (off.size_wasm32(), ty.clone()))
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
                     .collect();
                 let wave_types: Vec<_> = wave_ty.tuple_element_types().collect();
                 let elem_values: Vec<_> = value.unwrap_tuple().collect();
@@ -321,7 +321,7 @@ impl<'a> CanonicalAbi<'a> {
                     let wave_elem_ty = &wave_types[i];
                     let elem = &elem_values[i];
                     self.lower_into(
-                        &elem.clone().into_owned(),
+                        &elem.clone(),
                         wit_ty,
                         wave_elem_ty,
                         buffer,
@@ -369,7 +369,7 @@ impl<'a> CanonicalAbi<'a> {
                     .cases
                     .iter()
                     .position(|c| c.name == *case_name)
-                    .ok_or_else(|| CanonicalAbiError::InvalidDiscriminant {
+                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
                         discriminant: 0,
                         num_cases: e.cases.len(),
                     })?;
@@ -382,7 +382,7 @@ impl<'a> CanonicalAbi<'a> {
                     .cases
                     .iter()
                     .position(|c| c.name == *case_name)
-                    .ok_or_else(|| CanonicalAbiError::InvalidDiscriminant {
+                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
                         discriminant: 0,
                         num_cases: v.cases.len(),
                     })?;
@@ -398,7 +398,7 @@ impl<'a> CanonicalAbi<'a> {
                         let wave_cases: Vec<_> = wave_ty.variant_cases().collect();
                         if let Some((_, Some(wave_payload_ty))) = wave_cases.get(case_idx) {
                             self.lower_into(
-                                &payload_value.into_owned(),
+                                &payload_value,
                                 payload_ty,
                                 wave_payload_ty,
                                 buffer,
@@ -422,7 +422,7 @@ impl<'a> CanonicalAbi<'a> {
                             }
                         })?;
                         self.lower_into(
-                            &inner.into_owned(),
+                            &inner,
                             inner_ty,
                             &wave_inner_ty,
                             buffer,
@@ -455,9 +455,9 @@ impl<'a> CanonicalAbi<'a> {
                             (ok_val, &r.ok, &ok_ty)
                         {
                             self.lower_into(
-                                &val.into_owned(),
+                                &val,
                                 wit_ok_ty,
-                                &wave_ok_ty,
+                                wave_ok_ty,
                                 buffer,
                                 offset + payload_offset.size_wasm32(),
                                 memory.as_deref_mut(),
@@ -470,9 +470,9 @@ impl<'a> CanonicalAbi<'a> {
                             (err_val, &r.err, &err_ty)
                         {
                             self.lower_into(
-                                &val.into_owned(),
+                                &val,
                                 wit_err_ty,
-                                &wave_err_ty,
+                                wave_err_ty,
                                 buffer,
                                 offset + payload_offset.size_wasm32(),
                                 memory.as_deref_mut(),
@@ -516,7 +516,7 @@ impl<'a> CanonicalAbi<'a> {
                             // Create a temporary buffer for the element
                             let mut elem_buf = vec![0u8; elem_size];
                             self.lower_into(
-                                &elem.into_owned(),
+                                &elem,
                                 elem_ty,
                                 &wave_elem_ty,
                                 &mut elem_buf,
@@ -564,7 +564,7 @@ impl<'a> CanonicalAbi<'a> {
                         break;
                     }
                     self.lower_into(
-                        &elem_values[i].clone().into_owned(),
+                        &elem_values[i].clone(),
                         elem_ty,
                         &wave_elem_ty,
                         buffer,
@@ -822,7 +822,7 @@ impl<'a> CanonicalAbi<'a> {
                     .sizes
                     .field_offsets(r.fields.iter().map(|f| &f.ty))
                     .into_iter()
-                    .map(|(off, ty)| (off.size_wasm32(), ty.clone()))
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
                     .collect();
                 let wave_fields: Vec<_> = wave_ty.record_fields().collect();
 
@@ -850,7 +850,7 @@ impl<'a> CanonicalAbi<'a> {
                     .sizes
                     .field_offsets(t.types.iter())
                     .into_iter()
-                    .map(|(off, ty)| (off.size_wasm32(), ty.clone()))
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
                     .collect();
                 let wave_types: Vec<_> = wave_ty.tuple_element_types().collect();
 

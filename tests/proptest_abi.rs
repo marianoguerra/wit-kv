@@ -22,7 +22,7 @@ fn create_resolve_with_type(wit: &str) -> Result<(Resolve, wit_parser::TypeId), 
     Ok((resolve, type_id))
 }
 
-/// Test roundtrip for u8 values
+// Test roundtrip for u8 values
 proptest! {
     #[test]
     fn roundtrip_u8(val in 0u8..=255u8) {
@@ -348,7 +348,7 @@ world w { use api.{my-char}; export f: func() -> my-char; }
         let bytes = abi
             .lower(&value, &wit_parser::Type::Id(type_id), &wave_type)
             .unwrap();
-        let (lifted, _) = abi
+        let _ = abi
             .lift(&bytes, &wit_parser::Type::Id(type_id), &wave_type)
             .unwrap();
 
@@ -360,7 +360,7 @@ world w { use api.{my-char}; export f: func() -> my-char; }
 }
 
 proptest! {
-    /// Test roundtrip for string values
+    // Test roundtrip for string values
     #[test]
     fn roundtrip_string(s in ".*") {
         let wit = r#"
@@ -409,7 +409,7 @@ world test-world {
         // If parsing fails (due to invalid escape sequences), skip this test case
     }
 
-    /// Test roundtrip for list of u32 values
+    // Test roundtrip for list of u32 values
     #[test]
     fn roundtrip_list_u32(values in prop::collection::vec(any::<u32>(), 0..20)) {
         let wit = r#"

@@ -1,33 +1,10 @@
 //! Reference tests comparing our canonical ABI implementation against wasmtime.
 //!
-//! These tests create minimal wasm components with functions that accept various WIT types,
-//! then compare how wasmtime encodes values against our implementation.
+//! These tests verify canonical ABI encoding for various WIT types.
 
-use wit_component::ComponentEncoder;
-use wit_parser::{ManglingAndAbi, Resolve};
+use wit_parser::Resolve;
 
 use wit_value::{CanonicalAbi, LinearMemory};
-
-/// Helper to create a minimal component from WIT and a dummy module
-fn create_test_component(wit_source: &str) -> Result<Vec<u8>, anyhow::Error> {
-    let mut resolve = Resolve::new();
-    let pkg_id = resolve.push_str("test.wit", wit_source)?;
-
-    // Use wit-component to create a dummy module and encode as component
-    let world_id = resolve.packages[pkg_id]
-        .worlds
-        .values()
-        .next()
-        .copied()
-        .ok_or_else(|| anyhow::anyhow!("No world found in WIT"))?;
-
-    let component_bytes = ComponentEncoder::default()
-        .validate(true)
-        .module(&wit_component::dummy_module(&resolve, world_id, ManglingAndAbi::Standard32))?
-        .encode()?;
-
-    Ok(component_bytes)
-}
 
 /// Test that our encoding of a point record matches the canonical ABI
 #[test]
