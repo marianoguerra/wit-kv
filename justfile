@@ -9,7 +9,7 @@ build:
     cargo build --release
 
 # Build all example wasm components
-build-examples: build-point-filter build-person-filter build-sum-scores
+build-examples: build-point-filter build-person-filter build-sum-scores build-point-to-magnitude
 
 # Build point-filter component (uses cargo-component)
 build-point-filter:
@@ -22,6 +22,10 @@ build-person-filter:
 # Build sum-scores component (uses cargo-component)
 build-sum-scores:
     cd examples/sum-scores && cargo component build --release --target wasm32-unknown-unknown
+
+# Build point-to-magnitude component (uses cargo-component)
+build-point-to-magnitude:
+    cd examples/point-to-magnitude && cargo component build --release --target wasm32-unknown-unknown
 
 # Run all tests
 test:
@@ -123,6 +127,24 @@ smoke-test: build build-examples
     fi
     echo ""
 
+    echo ">>> Testing map with point-to-magnitude (T -> T1 transformation)..."
+    OUTPUT=$(./target/release/wit-kv map points \
+        --module ./examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
+        --module-wit ./examples/point-to-magnitude/wit/map.wit \
+        --input-type point \
+        --output-type magnitude \
+        --path /tmp/smoke-test-kv 2>&1)
+    echo "$OUTPUT"
+    # p1(10,20)->500, p2(50,50)->5000, p4(3,4)->25; p3(150,0) filtered (origin check passes, but let's verify output)
+    # All 4 points should transform since none are at origin
+    if echo "$OUTPUT" | grep -q "distance-squared:" && echo "$OUTPUT" | grep -q "quadrant:"; then
+        echo "PASSED: point-to-magnitude produced magnitude records with distance-squared and quadrant"
+    else
+        echo "FAILED: point-to-magnitude should produce magnitude records"
+        exit 1
+    fi
+    echo ""
+
     echo "========================================"
     echo "  ALL SMOKE TESTS PASSED"
     echo "========================================"
@@ -133,3 +155,4 @@ clean:
     rm -rf examples/point-filter/target
     rm -rf examples/person-filter/target
     rm -rf examples/sum-scores/target
+    rm -rf examples/point-to-magnitude/target
