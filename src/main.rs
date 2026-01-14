@@ -4,6 +4,7 @@ use thiserror::Error;
 use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
+use wit_value::kv::{KvError, KvStore};
 use wit_value::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 
 #[derive(Error, Debug)]
@@ -28,6 +29,9 @@ pub enum AppError {
 
     #[error("No types found in WIT file")]
     NoTypes,
+
+    #[error("KV store error: {0}")]
+    Kv(#[from] KvError),
 }
 
 #[derive(Parser)]
@@ -76,6 +80,120 @@ enum Commands {
         /// Output file for WAVE representation (stdout if not specified)
         #[arg(short, long)]
         output: Option<PathBuf>,
+    },
+
+    /// Key-value store operations
+    Kv {
+        /// Database path (default: .wit-kv/)
+        #[arg(long, global = true, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+
+        #[command(subcommand)]
+        command: KvCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum KvCommands {
+    /// Initialize a new key-value store
+    Init,
+
+    /// Register a type for a keyspace
+    SetType {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Path to the WIT file containing the type definition
+        #[arg(long)]
+        wit: PathBuf,
+
+        /// Name of the type to use (if not specified, uses the first type found)
+        #[arg(long)]
+        type_name: Option<String>,
+
+        /// Overwrite existing type definition
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Get the type definition for a keyspace
+    GetType {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Output raw binary format instead of WIT text
+        #[arg(long)]
+        binary: bool,
+    },
+
+    /// Delete a keyspace type
+    DeleteType {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Also delete all data in the keyspace
+        #[arg(long)]
+        delete_data: bool,
+    },
+
+    /// List all registered types
+    ListTypes,
+
+    /// Set a value in a keyspace
+    Set {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Key for the value
+        key: String,
+
+        /// WAVE-encoded value
+        #[arg(long, group = "input")]
+        value: Option<String>,
+
+        /// Read WAVE value from file
+        #[arg(long, group = "input")]
+        file: Option<PathBuf>,
+    },
+
+    /// Get a value from a keyspace
+    Get {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Key for the value
+        key: String,
+
+        /// Output raw canonical ABI bytes (value only)
+        #[arg(long)]
+        binary: bool,
+
+        /// Output full stored format (value + memory)
+        #[arg(long)]
+        raw: bool,
+    },
+
+    /// Delete a value from a keyspace
+    Delete {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Key for the value
+        key: String,
+    },
+
+    /// List keys in a keyspace
+    List {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Filter keys by prefix
+        #[arg(long)]
+        prefix: Option<String>,
+
+        /// Maximum number of keys to return
+        #[arg(long)]
+        limit: Option<usize>,
     },
 }
 
@@ -163,6 +281,166 @@ fn main() -> Result<(), AppError> {
                 }
                 None => {
                     println!("{}", wave_str);
+                }
+            }
+            Ok(())
+        }
+        Commands::Kv { path, command } => handle_kv_command(&path, command),
+    }
+}
+
+fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), AppError> {
+    use std::io::Write;
+
+    match command {
+        KvCommands::Init => {
+            let store = KvStore::init(path)?;
+            drop(store);
+            println!("Initialized KV store at {}", path.display());
+            Ok(())
+        }
+        KvCommands::SetType {
+            keyspace,
+            wit,
+            type_name,
+            force,
+        } => {
+            let store = KvStore::open(path)?;
+            let metadata = store.set_type(&keyspace, &wit, type_name.as_deref(), force)?;
+            println!(
+                "Registered type '{}' for keyspace '{}' ({})",
+                metadata.type_name, keyspace, metadata.qualified_name
+            );
+            Ok(())
+        }
+        KvCommands::GetType { keyspace, binary } => {
+            let store = KvStore::open(path)?;
+            match store.get_type(&keyspace)? {
+                Some(metadata) => {
+                    if binary {
+                        let (buffer, memory) = metadata.encode()?;
+                        std::io::stdout().write_all(&buffer)?;
+                        if !memory.is_empty() {
+                            std::io::stderr().write_all(b"Memory written to stderr\n")?;
+                            std::io::stderr().write_all(&memory)?;
+                        }
+                    } else {
+                        println!("{}", metadata.wit_definition);
+                    }
+                }
+                None => {
+                    eprintln!("Keyspace '{}' not found", keyspace);
+                    std::process::exit(1);
+                }
+            }
+            Ok(())
+        }
+        KvCommands::DeleteType {
+            keyspace,
+            delete_data,
+        } => {
+            let store = KvStore::open(path)?;
+            store.delete_type(&keyspace, delete_data)?;
+            if delete_data {
+                println!("Deleted keyspace '{}' and all its data", keyspace);
+            } else {
+                println!("Deleted type for keyspace '{}'", keyspace);
+            }
+            Ok(())
+        }
+        KvCommands::ListTypes => {
+            let store = KvStore::open(path)?;
+            let types = store.list_types()?;
+            if types.is_empty() {
+                println!("No types registered");
+            } else {
+                for metadata in types {
+                    println!(
+                        "{}: {} (version {})",
+                        metadata.name, metadata.qualified_name, metadata.type_version
+                    );
+                }
+            }
+            Ok(())
+        }
+        KvCommands::Set {
+            keyspace,
+            key,
+            value,
+            file,
+        } => {
+            let store = KvStore::open(path)?;
+            let wave_value = match (value, file) {
+                (Some(v), None) => v,
+                (None, Some(f)) => std::fs::read_to_string(f)?,
+                (None, None) => {
+                    eprintln!("Either --value or --file must be specified");
+                    std::process::exit(1);
+                }
+                // Clap group ensures mutual exclusivity, but handle gracefully
+                (Some(v), Some(_)) => v,
+            };
+            store.set(&keyspace, &key, &wave_value)?;
+            println!("Set '{}' in keyspace '{}'", key, keyspace);
+            Ok(())
+        }
+        KvCommands::Get {
+            keyspace,
+            key,
+            binary,
+            raw,
+        } => {
+            let store = KvStore::open(path)?;
+            if binary || raw {
+                match store.get_raw(&keyspace, &key)? {
+                    Some(stored) => {
+                        if raw {
+                            let (buffer, memory) = stored.encode()?;
+                            std::io::stdout().write_all(&buffer)?;
+                            if !memory.is_empty() {
+                                std::io::stdout().write_all(&memory)?;
+                            }
+                        } else {
+                            // binary - just the value bytes
+                            std::io::stdout().write_all(&stored.value)?;
+                        }
+                    }
+                    None => {
+                        eprintln!("Key '{}' not found in keyspace '{}'", key, keyspace);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match store.get(&keyspace, &key)? {
+                    Some(wave_str) => {
+                        println!("{}", wave_str);
+                    }
+                    None => {
+                        eprintln!("Key '{}' not found in keyspace '{}'", key, keyspace);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Ok(())
+        }
+        KvCommands::Delete { keyspace, key } => {
+            let store = KvStore::open(path)?;
+            store.delete(&keyspace, &key)?;
+            println!("Deleted '{}' from keyspace '{}'", key, keyspace);
+            Ok(())
+        }
+        KvCommands::List {
+            keyspace,
+            prefix,
+            limit,
+        } => {
+            let store = KvStore::open(path)?;
+            let keys = store.list(&keyspace, prefix.as_deref(), limit)?;
+            if keys.is_empty() {
+                println!("No keys found");
+            } else {
+                for key in keys {
+                    println!("{}", key);
                 }
             }
             Ok(())

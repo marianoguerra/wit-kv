@@ -5,12 +5,25 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 wit-parser = "0.244"
 wasm-wave = { version = "0.244", features = ["wit"] }
+fjall = "3.0.1"
+crc32fast = "1"
+once_cell = "1"
 
 [dev-dependencies]
 proptest = "1"
 wasmtime = { version = "40.0.1", features = ["component-model"] }
 wit-component = { version = "0.244.0", features = ["dummy-module"] }
+
+[lints.clippy]
+# Disallow functions and macros that can panic
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"

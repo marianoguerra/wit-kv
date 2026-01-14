@@ -1,0 +1,376 @@
+//! WIT-based binary format encoding and decoding.
+//!
+//! This module uses the canonical ABI to encode/decode StoredValue and KeyspaceMetadata
+//! structures using the WIT types defined in kv.wit.
+
+use std::borrow::Cow;
+
+use once_cell::sync::Lazy;
+use wasm_wave::value::{resolve_wit_type, Type as WaveType, Value};
+use wasm_wave::wasm::{WasmType, WasmValue};
+use wit_parser::{Resolve, Type, TypeId};
+
+use crate::{CanonicalAbi, LinearMemory};
+
+use super::error::KvError;
+use super::types::{KeyspaceMetadata, StoredValue};
+
+/// Lazily loaded KV WIT types.
+struct KvTypes {
+    resolve: Resolve,
+    stored_value_id: TypeId,
+    keyspace_metadata_id: TypeId,
+    stored_value_wave_type: WaveType,
+    keyspace_metadata_wave_type: WaveType,
+}
+
+static KV_TYPES: Lazy<KvTypes> = Lazy::new(|| {
+    // This expect is acceptable because kv.wit is a compile-time constant embedded in the binary.
+    // If it fails to parse, it's a bug in the embedded WIT file, not a runtime error.
+    #[allow(clippy::expect_used)]
+    load_kv_types().expect("Failed to load kv.wit types - this is a bug in the embedded WIT file")
+});
+
+fn load_kv_types() -> Result<KvTypes, KvError> {
+    let mut resolve = Resolve::new();
+
+    // Load the kv.wit file from the crate root
+    let kv_wit = include_str!("../../kv.wit");
+    resolve.push_str("kv.wit", kv_wit)?;
+
+    // Find the stored-value type
+    let stored_value_id = resolve
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("stored-value"))
+        .map(|(id, _)| id)
+        .ok_or_else(|| KvError::TypeNotFound("stored-value".to_string()))?;
+
+    // Find the keyspace-metadata type
+    let keyspace_metadata_id = resolve
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("keyspace-metadata"))
+        .map(|(id, _)| id)
+        .ok_or_else(|| KvError::TypeNotFound("keyspace-metadata".to_string()))?;
+
+    let stored_value_wave_type = resolve_wit_type(&resolve, stored_value_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+    let keyspace_metadata_wave_type = resolve_wit_type(&resolve, keyspace_metadata_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+    Ok(KvTypes {
+        resolve,
+        stored_value_id,
+        keyspace_metadata_id,
+        stored_value_wave_type,
+        keyspace_metadata_wave_type,
+    })
+}
+
+/// Helper to get a record field type by name
+fn get_field_type(wave_type: &WaveType, field_name: &str) -> Option<WaveType> {
+    wave_type
+        .record_fields()
+        .find(|(name, _)| name.as_ref() == field_name)
+        .map(|(_, ty)| ty)
+}
+
+impl StoredValue {
+    /// Encode the StoredValue to binary using canonical ABI.
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        // Build WAVE value for stored-value record
+        let wave_value = self.to_wave_value(&kv.stored_value_wave_type)?;
+
+        let mut memory = LinearMemory::new();
+        let buffer = abi.lower_with_memory(
+            &wave_value,
+            &Type::Id(kv.stored_value_id),
+            &kv.stored_value_wave_type,
+            &mut memory,
+        )?;
+
+        Ok((buffer, memory.into_bytes()))
+    }
+
+    /// Decode a StoredValue from binary using canonical ABI.
+    pub fn decode(buffer: &[u8], memory: &[u8]) -> Result<Self, KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let mem = if memory.is_empty() {
+            LinearMemory::new()
+        } else {
+            LinearMemory::from_bytes(memory.to_vec())
+        };
+
+        let (value, _) = abi.lift_with_memory(
+            buffer,
+            &Type::Id(kv.stored_value_id),
+            &kv.stored_value_wave_type,
+            &mem,
+        )?;
+
+        Self::from_wave_value(&value)
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        // Get field types from the record type
+        let value_field_type = get_field_type(wave_type, "value")
+            .ok_or_else(|| KvError::InvalidFormat("Missing value field type".to_string()))?;
+
+        let memory_field_type = get_field_type(wave_type, "memory")
+            .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
+
+        // Build the list<u8> for value field
+        let value_list: Vec<Value> = self.value.iter().map(|&b| Value::make_u8(b)).collect();
+        let value_val = Value::make_list(&value_field_type, value_list)
+            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+        // Build the option<list<u8>> for memory field
+        let memory_val = match &self.memory {
+            Some(mem) => {
+                // Get the inner list type from option<list<u8>>
+                let inner_list_type = memory_field_type
+                    .option_some_type()
+                    .ok_or_else(|| KvError::InvalidFormat("Expected option type for memory".to_string()))?;
+
+                let mem_list: Vec<Value> = mem.iter().map(|&b| Value::make_u8(b)).collect();
+                let mem_list_val = Value::make_list(&inner_list_type, mem_list)
+                    .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+                Value::make_option(&memory_field_type, Some(mem_list_val))
+                    .map_err(|e| KvError::WaveParse(e.to_string()))?
+            }
+            None => {
+                Value::make_option(&memory_field_type, None)
+                    .map_err(|e| KvError::WaveParse(e.to_string()))?
+            }
+        };
+
+        // Build the record
+        Value::make_record(
+            wave_type,
+            vec![
+                ("version", Value::make_u8(self.version)),
+                ("type-version", Value::make_u32(self.type_version)),
+                ("value", value_val),
+                ("memory", memory_val),
+            ],
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))
+    }
+
+    fn from_wave_value(value: &Value) -> Result<Self, KvError> {
+        let fields: Vec<_> = value.unwrap_record().collect();
+
+        let version = fields
+            .iter()
+            .find(|(name, _)| name.as_ref() == "version")
+            .map(|(_, v)| v.unwrap_u8())
+            .ok_or_else(|| KvError::InvalidFormat("Missing version field".to_string()))?;
+
+        let type_version = fields
+            .iter()
+            .find(|(name, _)| name.as_ref() == "type-version")
+            .map(|(_, v)| v.unwrap_u32())
+            .ok_or_else(|| KvError::InvalidFormat("Missing type-version field".to_string()))?;
+
+        let value_bytes: Vec<u8> = fields
+            .iter()
+            .find(|(name, _)| name.as_ref() == "value")
+            .map(|(_, v)| v.unwrap_list().map(|e| e.unwrap_u8()).collect())
+            .ok_or_else(|| KvError::InvalidFormat("Missing value field".to_string()))?;
+
+        let memory = fields
+            .iter()
+            .find(|(name, _)| name.as_ref() == "memory")
+            .and_then(|(_, v)| {
+                v.unwrap_option().map(|inner| {
+                    inner.unwrap_list().map(|e| e.unwrap_u8()).collect()
+                })
+            });
+
+        Ok(StoredValue {
+            version,
+            type_version,
+            value: value_bytes,
+            memory,
+        })
+    }
+}
+
+impl KeyspaceMetadata {
+    /// Encode the KeyspaceMetadata to binary using canonical ABI.
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let wave_value = self.to_wave_value(&kv.keyspace_metadata_wave_type)?;
+
+        let mut memory = LinearMemory::new();
+        let buffer = abi.lower_with_memory(
+            &wave_value,
+            &Type::Id(kv.keyspace_metadata_id),
+            &kv.keyspace_metadata_wave_type,
+            &mut memory,
+        )?;
+
+        Ok((buffer, memory.into_bytes()))
+    }
+
+    /// Decode a KeyspaceMetadata from binary using canonical ABI.
+    pub fn decode(buffer: &[u8], memory: &[u8]) -> Result<Self, KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let mem = if memory.is_empty() {
+            LinearMemory::new()
+        } else {
+            LinearMemory::from_bytes(memory.to_vec())
+        };
+
+        let (value, _) = abi.lift_with_memory(
+            buffer,
+            &Type::Id(kv.keyspace_metadata_id),
+            &kv.keyspace_metadata_wave_type,
+            &mem,
+        )?;
+
+        Self::from_wave_value(&value)
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        Value::make_record(
+            wave_type,
+            vec![
+                ("name", Value::make_string(Cow::Borrowed(&self.name))),
+                (
+                    "qualified-name",
+                    Value::make_string(Cow::Borrowed(&self.qualified_name)),
+                ),
+                (
+                    "wit-definition",
+                    Value::make_string(Cow::Borrowed(&self.wit_definition)),
+                ),
+                (
+                    "type-name",
+                    Value::make_string(Cow::Borrowed(&self.type_name)),
+                ),
+                ("type-version", Value::make_u32(self.type_version)),
+                ("type-hash", Value::make_u32(self.type_hash)),
+                ("created-at", Value::make_u64(self.created_at)),
+            ],
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))
+    }
+
+    fn from_wave_value(value: &Value) -> Result<Self, KvError> {
+        let fields: Vec<_> = value.unwrap_record().collect();
+
+        let name = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "name")
+            .map(|(_, v)| v.unwrap_string().to_string())
+            .ok_or_else(|| KvError::InvalidFormat("Missing name field".to_string()))?;
+
+        let qualified_name = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "qualified-name")
+            .map(|(_, v)| v.unwrap_string().to_string())
+            .ok_or_else(|| KvError::InvalidFormat("Missing qualified-name field".to_string()))?;
+
+        let wit_definition = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "wit-definition")
+            .map(|(_, v)| v.unwrap_string().to_string())
+            .ok_or_else(|| KvError::InvalidFormat("Missing wit-definition field".to_string()))?;
+
+        let type_name = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "type-name")
+            .map(|(_, v)| v.unwrap_string().to_string())
+            .ok_or_else(|| KvError::InvalidFormat("Missing type-name field".to_string()))?;
+
+        let type_version = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "type-version")
+            .map(|(_, v)| v.unwrap_u32())
+            .ok_or_else(|| KvError::InvalidFormat("Missing type-version field".to_string()))?;
+
+        let type_hash = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "type-hash")
+            .map(|(_, v)| v.unwrap_u32())
+            .ok_or_else(|| KvError::InvalidFormat("Missing type-hash field".to_string()))?;
+
+        let created_at = fields
+            .iter()
+            .find(|(n, _)| n.as_ref() == "created-at")
+            .map(|(_, v)| v.unwrap_u64())
+            .ok_or_else(|| KvError::InvalidFormat("Missing created-at field".to_string()))?;
+
+        Ok(KeyspaceMetadata {
+            name,
+            qualified_name,
+            wit_definition,
+            type_name,
+            type_version,
+            type_hash,
+            created_at,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stored_value_roundtrip() {
+        let original = StoredValue::new(1, vec![1, 2, 3, 4], Some(vec![5, 6, 7]));
+        let (buffer, memory) = original.encode().unwrap();
+        let decoded = StoredValue::decode(&buffer, &memory).unwrap();
+
+        assert_eq!(original.version, decoded.version);
+        assert_eq!(original.type_version, decoded.type_version);
+        assert_eq!(original.value, decoded.value);
+        assert_eq!(original.memory, decoded.memory);
+    }
+
+    #[test]
+    fn test_stored_value_without_memory() {
+        let original = StoredValue::new(1, vec![1, 2, 3, 4], None);
+        let (buffer, memory) = original.encode().unwrap();
+        let decoded = StoredValue::decode(&buffer, &memory).unwrap();
+
+        assert_eq!(original.version, decoded.version);
+        assert_eq!(original.type_version, decoded.type_version);
+        assert_eq!(original.value, decoded.value);
+        assert_eq!(original.memory, decoded.memory);
+    }
+
+    #[test]
+    fn test_keyspace_metadata_roundtrip() {
+        let original = KeyspaceMetadata::new(
+            "task".to_string(),
+            "test:types/types#task".to_string(),
+            "record task { name: string }".to_string(),
+            "task".to_string(),
+        );
+
+        let (buffer, memory) = original.encode().unwrap();
+        let decoded = KeyspaceMetadata::decode(&buffer, &memory).unwrap();
+
+        assert_eq!(original.name, decoded.name);
+        assert_eq!(original.qualified_name, decoded.qualified_name);
+        assert_eq!(original.wit_definition, decoded.wit_definition);
+        assert_eq!(original.type_name, decoded.type_name);
+        assert_eq!(original.type_version, decoded.type_version);
+        assert_eq!(original.type_hash, decoded.type_hash);
+    }
+}

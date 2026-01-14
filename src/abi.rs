@@ -13,6 +13,47 @@ fn align_to(val: usize, align: usize) -> usize {
     (val + align - 1) & !(align - 1)
 }
 
+/// Safe buffer read helper - returns error instead of panicking
+fn read_byte(buffer: &[u8], offset: usize) -> Result<u8, CanonicalAbiError> {
+    buffer.get(offset).copied().ok_or(CanonicalAbiError::BufferTooSmall {
+        needed: offset + 1,
+        available: buffer.len(),
+    })
+}
+
+/// Safe buffer write helper - returns error instead of panicking
+fn write_byte(buffer: &mut [u8], offset: usize, value: u8) -> Result<(), CanonicalAbiError> {
+    let len = buffer.len();
+    *buffer.get_mut(offset).ok_or(CanonicalAbiError::BufferTooSmall {
+        needed: offset + 1,
+        available: len,
+    })? = value;
+    Ok(())
+}
+
+/// Safe buffer slice read helper
+fn read_slice(buffer: &[u8], start: usize, len: usize) -> Result<&[u8], CanonicalAbiError> {
+    let buf_len = buffer.len();
+    buffer.get(start..start + len).ok_or(CanonicalAbiError::BufferTooSmall {
+        needed: start + len,
+        available: buf_len,
+    })
+}
+
+/// Safe buffer slice write helper
+fn write_slice(buffer: &mut [u8], start: usize, data: &[u8]) -> Result<(), CanonicalAbiError> {
+    let end = start + data.len();
+    let len = buffer.len();
+    buffer
+        .get_mut(start..end)
+        .ok_or(CanonicalAbiError::BufferTooSmall {
+            needed: end,
+            available: len,
+        })?
+        .copy_from_slice(data);
+    Ok(())
+}
+
 #[derive(Error, Debug)]
 pub enum CanonicalAbiError {
     #[error("Buffer too small: need {needed} bytes, have {available}")]
@@ -91,21 +132,21 @@ impl LinearMemory {
         if end > self.data.len() {
             self.data.resize(end, 0);
         }
-        self.data[start..end].copy_from_slice(bytes);
+        // Safe: we just ensured the range exists via resize
+        if let Some(slice) = self.data.get_mut(start..end) {
+            slice.copy_from_slice(bytes);
+        }
     }
 
     /// Read bytes from a specific offset in memory.
     pub fn read(&self, offset: u32, len: u32) -> Result<&[u8], CanonicalAbiError> {
         let start = offset as usize;
         let end = start + len as usize;
-        if end > self.data.len() {
-            return Err(CanonicalAbiError::InvalidMemoryPointer {
-                ptr: offset,
-                len,
-                memory_size: self.data.len(),
-            });
-        }
-        Ok(&self.data[start..end])
+        self.data.get(start..end).ok_or(CanonicalAbiError::InvalidMemoryPointer {
+            ptr: offset,
+            len,
+            memory_size: self.data.len(),
+        })
     }
 
     /// Get the raw bytes of the linear memory.
@@ -179,58 +220,58 @@ impl<'a> CanonicalAbi<'a> {
         match wit_ty {
             Type::Bool => {
                 let v = value.unwrap_bool();
-                buffer[offset] = if v { 1 } else { 0 };
+                write_byte(buffer, offset, if v { 1 } else { 0 })?;
             }
             Type::U8 => {
-                buffer[offset] = value.unwrap_u8();
+                write_byte(buffer, offset, value.unwrap_u8())?;
             }
             Type::S8 => {
-                buffer[offset] = value.unwrap_s8() as u8;
+                write_byte(buffer, offset, value.unwrap_s8() as u8)?;
             }
             Type::U16 => {
                 let aligned = align_to(offset, 2);
                 let bytes = value.unwrap_u16().to_le_bytes();
-                buffer[aligned..aligned + 2].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::S16 => {
                 let aligned = align_to(offset, 2);
                 let bytes = value.unwrap_s16().to_le_bytes();
-                buffer[aligned..aligned + 2].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::U32 => {
                 let aligned = align_to(offset, 4);
                 let bytes = value.unwrap_u32().to_le_bytes();
-                buffer[aligned..aligned + 4].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::S32 => {
                 let aligned = align_to(offset, 4);
                 let bytes = value.unwrap_s32().to_le_bytes();
-                buffer[aligned..aligned + 4].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::U64 => {
                 let aligned = align_to(offset, 8);
                 let bytes = value.unwrap_u64().to_le_bytes();
-                buffer[aligned..aligned + 8].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::S64 => {
                 let aligned = align_to(offset, 8);
                 let bytes = value.unwrap_s64().to_le_bytes();
-                buffer[aligned..aligned + 8].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::F32 => {
                 let aligned = align_to(offset, 4);
                 let bytes = value.unwrap_f32().to_le_bytes();
-                buffer[aligned..aligned + 4].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::F64 => {
                 let aligned = align_to(offset, 8);
                 let bytes = value.unwrap_f64().to_le_bytes();
-                buffer[aligned..aligned + 8].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::Char => {
                 let aligned = align_to(offset, 4);
                 let bytes = (value.unwrap_char() as u32).to_le_bytes();
-                buffer[aligned..aligned + 4].copy_from_slice(&bytes);
+                write_slice(buffer, aligned, &bytes)?;
             }
             Type::String => {
                 // Strings are stored as ptr + len in the canonical ABI
@@ -246,8 +287,8 @@ impl<'a> CanonicalAbi<'a> {
                         // Store ptr and len in the buffer
                         let ptr_bytes = ptr.to_le_bytes();
                         let len_bytes = (s.len() as u32).to_le_bytes();
-                        buffer[aligned..aligned + 4].copy_from_slice(&ptr_bytes);
-                        buffer[aligned + 4..aligned + 8].copy_from_slice(&len_bytes);
+                        write_slice(buffer, aligned, &ptr_bytes)?;
+                        write_slice(buffer, aligned + 4, &len_bytes)?;
                     }
                     None => {
                         return Err(CanonicalAbiError::LinearMemoryRequired(
@@ -277,7 +318,9 @@ impl<'a> CanonicalAbi<'a> {
         offset: usize,
         mut memory: Option<&mut LinearMemory>,
     ) -> Result<(), CanonicalAbiError> {
-        let ty_def = &self.resolve.types[id];
+        let ty_def = self.resolve.types.get(id).ok_or_else(|| {
+            CanonicalAbiError::UnsupportedType(format!("Unknown type id: {:?}", id))
+        })?;
         match &ty_def.kind {
             TypeDefKind::Type(t) => {
                 self.lower_into(value, t, wave_ty, buffer, offset, memory)?;
@@ -293,9 +336,24 @@ impl<'a> CanonicalAbi<'a> {
                 let field_values: Vec<_> = value.unwrap_record().collect();
 
                 for (i, field_def) in r.fields.iter().enumerate() {
-                    let (field_off, _) = &field_offsets[i];
-                    let (_, wave_field_ty) = &wave_fields[i];
-                    let (_, field_val) = &field_values[i];
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("field offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let (_, wave_field_ty) = wave_fields.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("wave field at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let (_, field_val) = field_values.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("field value at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
                     self.lower_into(
                         &field_val.clone(),
                         &field_def.ty,
@@ -317,9 +375,24 @@ impl<'a> CanonicalAbi<'a> {
                 let elem_values: Vec<_> = value.unwrap_tuple().collect();
 
                 for (i, wit_ty) in t.types.iter().enumerate() {
-                    let (field_off, _) = &field_offsets[i];
-                    let wave_elem_ty = &wave_types[i];
-                    let elem = &elem_values[i];
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let wave_elem_ty = wave_types.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple wave type at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let elem = elem_values.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple element at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
                     self.lower_into(
                         &elem.clone(),
                         wit_ty,
@@ -344,12 +417,11 @@ impl<'a> CanonicalAbi<'a> {
 
                 match f.repr() {
                     FlagsRepr::U8 => {
-                        buffer[offset] = flags_value as u8;
+                        write_byte(buffer, offset, flags_value as u8)?;
                     }
                     FlagsRepr::U16 => {
                         let aligned = align_to(offset, 2);
-                        buffer[aligned..aligned + 2]
-                            .copy_from_slice(&(flags_value as u16).to_le_bytes());
+                        write_slice(buffer, aligned, &(flags_value as u16).to_le_bytes())?;
                     }
                     FlagsRepr::U32(n) => {
                         let aligned = align_to(offset, 4);
@@ -357,8 +429,7 @@ impl<'a> CanonicalAbi<'a> {
                         for i in 0..n {
                             let word = if i == 0 { flags_value } else { 0 };
                             let word_offset = aligned + (i * 4);
-                            buffer[word_offset..word_offset + 4]
-                                .copy_from_slice(&word.to_le_bytes());
+                            write_slice(buffer, word_offset, &word.to_le_bytes())?;
                         }
                     }
                 }
@@ -393,7 +464,12 @@ impl<'a> CanonicalAbi<'a> {
                     let payload_offset = self
                         .sizes
                         .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
-                    let case = &v.cases[case_idx];
+                    let case = v.cases.get(case_idx).ok_or(
+                        CanonicalAbiError::InvalidDiscriminant {
+                            discriminant: case_idx as u32,
+                            num_cases: v.cases.len(),
+                        }
+                    )?;
                     if let Some(payload_ty) = &case.ty {
                         let wave_cases: Vec<_> = wave_ty.variant_cases().collect();
                         if let Some((_, Some(wave_payload_ty))) = wave_cases.get(case_idx) {
@@ -413,7 +489,7 @@ impl<'a> CanonicalAbi<'a> {
                 let opt_value = value.unwrap_option();
                 match opt_value {
                     Some(inner) => {
-                        buffer[offset] = 1;
+                        write_byte(buffer, offset, 1)?;
                         let payload_offset = self.sizes.payload_offset(Int::U8, [Some(inner_ty)]);
                         let wave_inner_ty = wave_ty.option_some_type().ok_or_else(|| {
                             CanonicalAbiError::TypeMismatch {
@@ -431,7 +507,7 @@ impl<'a> CanonicalAbi<'a> {
                         )?;
                     }
                     None => {
-                        buffer[offset] = 0;
+                        write_byte(buffer, offset, 0)?;
                     }
                 }
             }
@@ -450,7 +526,7 @@ impl<'a> CanonicalAbi<'a> {
 
                 match result_value {
                     Ok(ok_val) => {
-                        buffer[offset] = 0;
+                        write_byte(buffer, offset, 0)?;
                         if let (Some(val), Some(wit_ok_ty), Some(wave_ok_ty)) =
                             (ok_val, &r.ok, &ok_ty)
                         {
@@ -465,7 +541,7 @@ impl<'a> CanonicalAbi<'a> {
                         }
                     }
                     Err(err_val) => {
-                        buffer[offset] = 1;
+                        write_byte(buffer, offset, 1)?;
                         if let (Some(val), Some(wit_err_ty), Some(wave_err_ty)) =
                             (err_val, &r.err, &err_ty)
                         {
@@ -529,8 +605,8 @@ impl<'a> CanonicalAbi<'a> {
                         // Store ptr and len in the buffer
                         let ptr_bytes = ptr.to_le_bytes();
                         let len_bytes = (len as u32).to_le_bytes();
-                        buffer[aligned..aligned + 4].copy_from_slice(&ptr_bytes);
-                        buffer[aligned + 4..aligned + 8].copy_from_slice(&len_bytes);
+                        write_slice(buffer, aligned, &ptr_bytes)?;
+                        write_slice(buffer, aligned + 4, &len_bytes)?;
                     }
                     None => {
                         return Err(CanonicalAbiError::LinearMemoryRequired("list".to_string()));
@@ -560,11 +636,11 @@ impl<'a> CanonicalAbi<'a> {
 
                 let elem_values: Vec<_> = value.unwrap_list().collect();
                 for i in 0..*len as usize {
-                    if i >= elem_values.len() {
+                    let Some(elem) = elem_values.get(i) else {
                         break;
-                    }
+                    };
                     self.lower_into(
-                        &elem_values[i].clone(),
+                        &elem.clone(),
                         elem_ty,
                         &wave_elem_ty,
                         buffer,
@@ -592,19 +668,19 @@ impl<'a> CanonicalAbi<'a> {
     ) -> Result<(), CanonicalAbiError> {
         match tag {
             Int::U8 => {
-                buffer[offset] = value as u8;
+                write_byte(buffer, offset, value as u8)?;
             }
             Int::U16 => {
                 let aligned = align_to(offset, 2);
-                buffer[aligned..aligned + 2].copy_from_slice(&(value as u16).to_le_bytes());
+                write_slice(buffer, aligned, &(value as u16).to_le_bytes())?;
             }
             Int::U32 => {
                 let aligned = align_to(offset, 4);
-                buffer[aligned..aligned + 4].copy_from_slice(&value.to_le_bytes());
+                write_slice(buffer, aligned, &value.to_le_bytes())?;
             }
             Int::U64 => {
                 let aligned = align_to(offset, 8);
-                buffer[aligned..aligned + 8].copy_from_slice(&(value as u64).to_le_bytes());
+                write_slice(buffer, aligned, &(value as u64).to_le_bytes())?;
             }
         }
         Ok(())
@@ -651,18 +727,18 @@ impl<'a> CanonicalAbi<'a> {
 
         let value = match wit_ty {
             Type::Bool => {
-                let v = buffer[offset];
+                let v = read_byte(buffer, offset)?;
                 match v {
                     0 => Value::make_bool(false),
                     1 => Value::make_bool(true),
                     _ => return Err(CanonicalAbiError::InvalidBool(v)),
                 }
             }
-            Type::U8 => Value::make_u8(buffer[offset]),
-            Type::S8 => Value::make_s8(buffer[offset] as i8),
+            Type::U8 => Value::make_u8(read_byte(buffer, offset)?),
+            Type::S8 => Value::make_s8(read_byte(buffer, offset)? as i8),
             Type::U16 => {
                 let aligned = align_to(offset, 2);
-                let bytes: [u8; 2] = buffer[aligned..aligned + 2]
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 2,
@@ -672,7 +748,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::S16 => {
                 let aligned = align_to(offset, 2);
-                let bytes: [u8; 2] = buffer[aligned..aligned + 2]
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 2,
@@ -682,7 +758,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::U32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
@@ -692,7 +768,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::S32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
@@ -702,7 +778,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::U64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = buffer[aligned..aligned + 8]
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
@@ -712,7 +788,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::S64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = buffer[aligned..aligned + 8]
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
@@ -722,7 +798,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::F32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
@@ -732,7 +808,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::F64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = buffer[aligned..aligned + 8]
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
@@ -742,7 +818,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Type::Char => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
@@ -759,13 +835,13 @@ impl<'a> CanonicalAbi<'a> {
                 match memory {
                     Some(mem) => {
                         // Read ptr and len from buffer
-                        let ptr_bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                        let ptr_bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                             .try_into()
                             .map_err(|_| CanonicalAbiError::BufferTooSmall {
                                 needed: aligned + 4,
                                 available: buffer.len(),
                             })?;
-                        let len_bytes: [u8; 4] = buffer[aligned + 4..aligned + 8]
+                        let len_bytes: [u8; 4] = read_slice(buffer, aligned + 4, 4)?
                             .try_into()
                             .map_err(|_| CanonicalAbiError::BufferTooSmall {
                                 needed: aligned + 8,
@@ -809,7 +885,9 @@ impl<'a> CanonicalAbi<'a> {
         offset: usize,
         memory: Option<&LinearMemory>,
     ) -> Result<(Value, usize), CanonicalAbiError> {
-        let ty_def = &self.resolve.types[id];
+        let ty_def = self.resolve.types.get(id).ok_or_else(|| {
+            CanonicalAbiError::UnsupportedType(format!("Unknown type id: {:?}", id))
+        })?;
         let size = self.sizes.size(&Type::Id(id)).size_wasm32();
 
         let value = match &ty_def.kind {
@@ -828,8 +906,18 @@ impl<'a> CanonicalAbi<'a> {
 
                 let mut fields: Vec<(&str, Value)> = Vec::new();
                 for (i, field_def) in r.fields.iter().enumerate() {
-                    let (field_off, _) = &field_offsets[i];
-                    let (_, wave_field_ty) = &wave_fields[i];
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("field offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let (_, wave_field_ty) = wave_fields.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("wave field at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
                     let (field_val, _) = self.lift_from(
                         buffer,
                         &field_def.ty,
@@ -856,8 +944,18 @@ impl<'a> CanonicalAbi<'a> {
 
                 let mut elements: Vec<Value> = Vec::new();
                 for (i, wit_ty) in t.types.iter().enumerate() {
-                    let (field_off, _) = &field_offsets[i];
-                    let wave_elem_ty = &wave_types[i];
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let wave_elem_ty = wave_types.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple wave type at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
                     let (elem_val, _) =
                         self.lift_from(buffer, wit_ty, wave_elem_ty, offset + field_off, memory)?;
                     elements.push(elem_val);
@@ -871,10 +969,10 @@ impl<'a> CanonicalAbi<'a> {
             TypeDefKind::Flags(f) => {
                 let flag_names: Vec<_> = wave_ty.flags_names().collect();
                 let flags_value = match f.repr() {
-                    FlagsRepr::U8 => buffer[offset] as u32,
+                    FlagsRepr::U8 => read_byte(buffer, offset)? as u32,
                     FlagsRepr::U16 => {
                         let aligned = align_to(offset, 2);
-                        let bytes: [u8; 2] = buffer[aligned..aligned + 2]
+                        let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
                             .try_into()
                             .map_err(|_| CanonicalAbiError::BufferTooSmall {
                                 needed: aligned + 2,
@@ -884,7 +982,7 @@ impl<'a> CanonicalAbi<'a> {
                     }
                     FlagsRepr::U32(_) => {
                         let aligned = align_to(offset, 4);
-                        let bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                        let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                             .try_into()
                             .map_err(|_| CanonicalAbiError::BufferTooSmall {
                                 needed: aligned + 4,
@@ -910,13 +1008,13 @@ impl<'a> CanonicalAbi<'a> {
             }
             TypeDefKind::Enum(e) => {
                 let discriminant = self.read_discriminant(buffer, offset, e.tag())?;
-                if discriminant as usize >= e.cases.len() {
-                    return Err(CanonicalAbiError::InvalidDiscriminant {
+                let case = e.cases.get(discriminant as usize).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant,
                         num_cases: e.cases.len(),
-                    });
-                }
-                let case_name = &e.cases[discriminant as usize].name;
+                    }
+                )?;
+                let case_name = &case.name;
 
                 Value::make_enum(wave_ty, case_name).map_err(|e| CanonicalAbiError::TypeMismatch {
                     expected: "enum".to_string(),
@@ -925,14 +1023,12 @@ impl<'a> CanonicalAbi<'a> {
             }
             TypeDefKind::Variant(v) => {
                 let discriminant = self.read_discriminant(buffer, offset, v.tag())?;
-                if discriminant as usize >= v.cases.len() {
-                    return Err(CanonicalAbiError::InvalidDiscriminant {
+                let case = v.cases.get(discriminant as usize).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant,
                         num_cases: v.cases.len(),
-                    });
-                }
-
-                let case = &v.cases[discriminant as usize];
+                    }
+                )?;
                 let payload_offset = self
                     .sizes
                     .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
@@ -961,7 +1057,7 @@ impl<'a> CanonicalAbi<'a> {
                 })?
             }
             TypeDefKind::Option(inner_ty) => {
-                let discriminant = buffer[offset];
+                let discriminant = read_byte(buffer, offset)?;
                 let payload_offset = self.sizes.payload_offset(Int::U8, [Some(inner_ty)]);
                 let wave_inner_ty =
                     wave_ty
@@ -997,7 +1093,7 @@ impl<'a> CanonicalAbi<'a> {
                 })?
             }
             TypeDefKind::Result(r) => {
-                let discriminant = buffer[offset];
+                let discriminant = read_byte(buffer, offset)?;
                 let payload_offset = self
                     .sizes
                     .payload_offset(Int::U8, [r.ok.as_ref(), r.err.as_ref()]);
@@ -1070,13 +1166,13 @@ impl<'a> CanonicalAbi<'a> {
                 match memory {
                     Some(mem) => {
                         // Read ptr and len from buffer
-                        let ptr_bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                        let ptr_bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                             .try_into()
                             .map_err(|_| CanonicalAbiError::BufferTooSmall {
                                 needed: aligned + 4,
                                 available: buffer.len(),
                             })?;
-                        let len_bytes: [u8; 4] = buffer[aligned + 4..aligned + 8]
+                        let len_bytes: [u8; 4] = read_slice(buffer, aligned + 4, 4)?
                             .try_into()
                             .map_err(|_| CanonicalAbiError::BufferTooSmall {
                                 needed: aligned + 8,
@@ -1169,10 +1265,10 @@ impl<'a> CanonicalAbi<'a> {
         tag: Int,
     ) -> Result<u32, CanonicalAbiError> {
         match tag {
-            Int::U8 => Ok(buffer[offset] as u32),
+            Int::U8 => Ok(read_byte(buffer, offset)? as u32),
             Int::U16 => {
                 let aligned = align_to(offset, 2);
-                let bytes: [u8; 2] = buffer[aligned..aligned + 2]
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 2,
@@ -1182,7 +1278,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Int::U32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = buffer[aligned..aligned + 4]
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
@@ -1192,7 +1288,7 @@ impl<'a> CanonicalAbi<'a> {
             }
             Int::U64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = buffer[aligned..aligned + 8]
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
                     .try_into()
                     .map_err(|_| CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,

@@ -4,6 +4,7 @@
 //! to/from binary format using the WebAssembly Component Model's canonical ABI.
 
 pub mod abi;
+pub mod kv;
 
 pub use abi::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 

@@ -1,0 +1,42 @@
+package wit-kv:storage@0.1.0;
+
+interface types {
+    /// Stored value envelope - wraps the actual value with metadata
+    record stored-value {
+        /// Format version for future compatibility
+        version: u8,
+
+        /// Type version at time of storage (for schema migration detection)
+        type-version: u32,
+
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+
+        /// Linear memory bytes (for variable-length types: strings, lists)
+        memory: option<list<u8>>,
+    }
+
+    /// Keyspace type metadata
+    record keyspace-metadata {
+        /// User-visible keyspace name
+        name: string,
+
+        /// Full WIT qualified name (namespace:package/interface#type)
+        qualified-name: string,
+
+        /// Full WIT type definition text
+        wit-definition: string,
+
+        /// Type name within the WIT definition
+        type-name: string,
+
+        /// Incremented on type definition changes
+        type-version: u32,
+
+        /// CRC32 hash of WIT definition
+        type-hash: u32,
+
+        /// Unix timestamp of creation
+        created-at: u64,
+    }
+}
