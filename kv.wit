@@ -1,13 +1,20 @@
-package wit-kv:storage@0.1.0;
+package wit-kv:storage@0.2.0;
 
 interface types {
+    /// Semantic version following WIT package versioning convention
+    record semantic-version {
+        major: u32,
+        minor: u32,
+        patch: u32,
+    }
+
     /// Stored value envelope - wraps the actual value with metadata
     record stored-value {
         /// Format version for future compatibility
         version: u8,
 
-        /// Type version at time of storage (for schema migration detection)
-        type-version: u32,
+        /// Type version at time of storage (semantic version)
+        type-version: semantic-version,
 
         /// Canonical ABI encoded value bytes
         value: list<u8>,
@@ -39,8 +46,8 @@ interface types {
         /// Type name within the WIT definition
         type-name: string,
 
-        /// Incremented on type definition changes
-        type-version: u32,
+        /// Semantic version for the type schema
+        type-version: semantic-version,
 
         /// CRC32 hash of WIT definition
         type-hash: u32,

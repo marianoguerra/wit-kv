@@ -32,7 +32,7 @@ use wit_parser::{Resolve, TypeId};
 
 use super::error::WasmError;
 use crate::abi::{CanonicalAbi, LinearMemory};
-use crate::kv::StoredValue;
+use crate::kv::{SemanticVersion, StoredValue};
 
 /// Convert a wasm_wave::Value to a wasmtime::component::Val based on the target type.
 pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, WasmError> {
@@ -517,7 +517,7 @@ impl TypedRunner {
     }
 
     /// Convert a typed Val result back to StoredValue.
-    pub fn val_to_stored(&self, val: &Val, type_version: u32) -> Result<StoredValue, WasmError> {
+    pub fn val_to_stored(&self, val: &Val, type_version: SemanticVersion) -> Result<StoredValue, WasmError> {
         // Step 1: Convert wasmtime::Val to wasm_wave::Value
         let wave_type = self.output_wave_type()?;
         let wave_value = val_to_wave(val, &wave_type)?;
@@ -592,7 +592,7 @@ impl TypedRunner {
     pub fn call_transform(
         &mut self,
         stored: &StoredValue,
-        type_version: u32,
+        type_version: SemanticVersion,
     ) -> Result<StoredValue, WasmError> {
         let func = self.get_func("transform")?;
 
@@ -640,7 +640,7 @@ impl TypedRunner {
     /// Call the `init-state` function to get the initial reduce state.
     ///
     /// The init-state function should have signature: `init-state() -> StateType`
-    pub fn call_init_state(&mut self, type_version: u32) -> Result<StoredValue, WasmError> {
+    pub fn call_init_state(&mut self, type_version: SemanticVersion) -> Result<StoredValue, WasmError> {
         let func = self.get_func("init-state")?;
 
         // Get function type
@@ -705,7 +705,7 @@ impl TypedRunner {
         &mut self,
         state: &StoredValue,
         value: &StoredValue,
-        type_version: u32,
+        type_version: SemanticVersion,
     ) -> Result<StoredValue, WasmError> {
         let func = self.get_func("reduce")?;
 

@@ -14,6 +14,7 @@ use crate::{CanonicalAbi, LinearMemory};
 
 use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};
+use super::version::SemanticVersion;
 
 /// Lazily loaded KV WIT types.
 struct KvTypes {
@@ -92,6 +93,47 @@ fn get_field_type(wave_type: &WaveType, field_name: &str) -> Option<WaveType> {
         .map(|(_, ty)| ty)
 }
 
+/// Helper to create a semantic-version WAVE value
+fn make_semantic_version(version: &SemanticVersion, parent_type: &WaveType) -> Result<Value, KvError> {
+    let version_type = get_field_type(parent_type, "type-version")
+        .ok_or_else(|| KvError::InvalidFormat("Missing type-version field type".to_string()))?;
+
+    Value::make_record(
+        &version_type,
+        vec![
+            ("major", Value::make_u32(version.major)),
+            ("minor", Value::make_u32(version.minor)),
+            ("patch", Value::make_u32(version.patch)),
+        ],
+    )
+    .map_err(|e| KvError::WaveParse(e.to_string()))
+}
+
+/// Helper to extract a SemanticVersion from a WAVE record value
+fn extract_semantic_version(value: &Value) -> Result<SemanticVersion, KvError> {
+    let fields: Vec<_> = value.unwrap_record().collect();
+
+    let major = fields
+        .iter()
+        .find(|(name, _)| name.as_ref() == "major")
+        .map(|(_, v)| v.unwrap_u32())
+        .ok_or_else(|| KvError::InvalidFormat("Missing major field".to_string()))?;
+
+    let minor = fields
+        .iter()
+        .find(|(name, _)| name.as_ref() == "minor")
+        .map(|(_, v)| v.unwrap_u32())
+        .ok_or_else(|| KvError::InvalidFormat("Missing minor field".to_string()))?;
+
+    let patch = fields
+        .iter()
+        .find(|(name, _)| name.as_ref() == "patch")
+        .map(|(_, v)| v.unwrap_u32())
+        .ok_or_else(|| KvError::InvalidFormat("Missing patch field".to_string()))?;
+
+    Ok(SemanticVersion::new(major, minor, patch))
+}
+
 impl StoredValue {
     /// Encode the StoredValue to binary using canonical ABI.
     pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
@@ -141,6 +183,9 @@ impl StoredValue {
         let memory_field_type = get_field_type(wave_type, "memory")
             .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
 
+        // Build the semantic-version record
+        let type_version_val = make_semantic_version(&self.type_version, wave_type)?;
+
         // Build the list<u8> for value field
         let value_list: Vec<Value> = self.value.iter().map(|&b| Value::make_u8(b)).collect();
         let value_val = Value::make_list(&value_field_type, value_list)
@@ -172,7 +217,7 @@ impl StoredValue {
             wave_type,
             vec![
                 ("version", Value::make_u8(self.version)),
-                ("type-version", Value::make_u32(self.type_version)),
+                ("type-version", type_version_val),
                 ("value", value_val),
                 ("memory", memory_val),
             ],
@@ -189,11 +234,12 @@ impl StoredValue {
             .map(|(_, v)| v.unwrap_u8())
             .ok_or_else(|| KvError::InvalidFormat("Missing version field".to_string()))?;
 
-        let type_version = fields
+        let type_version_val = fields
             .iter()
             .find(|(name, _)| name.as_ref() == "type-version")
-            .map(|(_, v)| v.unwrap_u32())
+            .map(|(_, v)| v)
             .ok_or_else(|| KvError::InvalidFormat("Missing type-version field".to_string()))?;
+        let type_version = extract_semantic_version(type_version_val)?;
 
         let value_bytes: Vec<u8> = fields
             .iter()
@@ -260,6 +306,9 @@ impl KeyspaceMetadata {
     }
 
     fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        // Build the semantic-version record
+        let type_version_val = make_semantic_version(&self.type_version, wave_type)?;
+
         Value::make_record(
             wave_type,
             vec![
@@ -276,7 +325,7 @@ impl KeyspaceMetadata {
                     "type-name",
                     Value::make_string(Cow::Borrowed(&self.type_name)),
                 ),
-                ("type-version", Value::make_u32(self.type_version)),
+                ("type-version", type_version_val),
                 ("type-hash", Value::make_u32(self.type_hash)),
                 ("created-at", Value::make_u64(self.created_at)),
             ],
@@ -311,11 +360,12 @@ impl KeyspaceMetadata {
             .map(|(_, v)| v.unwrap_string().to_string())
             .ok_or_else(|| KvError::InvalidFormat("Missing type-name field".to_string()))?;
 
-        let type_version = fields
+        let type_version_val = fields
             .iter()
             .find(|(n, _)| n.as_ref() == "type-version")
-            .map(|(_, v)| v.unwrap_u32())
+            .map(|(_, v)| v)
             .ok_or_else(|| KvError::InvalidFormat("Missing type-version field".to_string()))?;
+        let type_version = extract_semantic_version(type_version_val)?;
 
         let type_hash = fields
             .iter()
@@ -483,7 +533,11 @@ mod tests {
 
     #[test]
     fn test_stored_value_roundtrip() {
-        let original = StoredValue::new(1, vec![1, 2, 3, 4], Some(vec![5, 6, 7]));
+        let original = StoredValue::new(
+            SemanticVersion::new(0, 1, 0),
+            vec![1, 2, 3, 4],
+            Some(vec![5, 6, 7]),
+        );
         let (buffer, memory) = original.encode().unwrap();
         let decoded = StoredValue::decode(&buffer, &memory).unwrap();
 
@@ -495,7 +549,7 @@ mod tests {
 
     #[test]
     fn test_stored_value_without_memory() {
-        let original = StoredValue::new(1, vec![1, 2, 3, 4], None);
+        let original = StoredValue::new(SemanticVersion::new(1, 2, 3), vec![1, 2, 3, 4], None);
         let (buffer, memory) = original.encode().unwrap();
         let decoded = StoredValue::decode(&buffer, &memory).unwrap();
 
@@ -555,7 +609,11 @@ mod tests {
 
     #[test]
     fn test_binary_export_from_stored() {
-        let stored = StoredValue::new(1, vec![1, 2, 3], Some(vec![4, 5, 6]));
+        let stored = StoredValue::new(
+            SemanticVersion::INITIAL,
+            vec![1, 2, 3],
+            Some(vec![4, 5, 6]),
+        );
         let export = BinaryExport::from_stored(&stored);
 
         assert_eq!(export.buffer, stored.value);

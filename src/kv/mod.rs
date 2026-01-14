@@ -8,8 +8,10 @@ mod error;
 mod format;
 mod store;
 mod types;
+mod version;
 
 pub use error::KvError;
 pub use format::BinaryExport;
 pub use store::KvStore;
 pub use types::{KeyspaceMetadata, StoredValue};
+pub use version::SemanticVersion;

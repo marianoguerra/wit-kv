@@ -4,6 +4,8 @@ use thiserror::Error;
 
 use crate::CanonicalAbiError;
 
+use super::version::SemanticVersion;
+
 /// Errors that can occur during KV store operations.
 #[derive(Error, Debug)]
 pub enum KvError {
@@ -23,7 +25,10 @@ pub enum KvError {
     KeyNotFound(String),
 
     #[error("Type version mismatch: stored version {stored}, current version {current}")]
-    TypeVersionMismatch { stored: u32, current: u32 },
+    TypeVersionMismatch {
+        stored: SemanticVersion,
+        current: SemanticVersion,
+    },
 
     #[error("Invalid format: {0}")]
     InvalidFormat(String),

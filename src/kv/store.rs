@@ -257,12 +257,12 @@ impl KvStore {
             return Ok(None);
         };
 
-        // Check type version
-        if stored.type_version != metadata.type_version {
-            eprintln!(
-                "Warning: Type version mismatch for key '{}': stored {}, current {}",
-                key, stored.type_version, metadata.type_version
-            );
+        // Check type version compatibility
+        if !metadata.type_version.can_read_from(&stored.type_version) {
+            return Err(KvError::TypeVersionMismatch {
+                stored: stored.type_version,
+                current: metadata.type_version,
+            });
         }
 
         // Parse WIT type

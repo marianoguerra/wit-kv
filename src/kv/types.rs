@@ -1,17 +1,18 @@
 //! Data types for the KV store module.
 
+use super::version::SemanticVersion;
+
 /// Stored value envelope - wraps the actual value with metadata.
 /// This structure mirrors the `stored-value` WIT type in kv.wit.
 #[derive(Debug, Clone)]
 pub struct StoredValue {
     /// Format version for future compatibility.
     /// Used for migration if the envelope structure changes.
-    /// Current version: 1
     pub version: u8,
 
-    /// Type version at time of storage (for schema migration detection).
+    /// Type version at time of storage (semantic version).
     /// Matches the keyspace's type_version when the value was written.
-    pub type_version: u32,
+    pub type_version: SemanticVersion,
 
     /// Canonical ABI encoded value bytes
     pub value: Vec<u8>,
@@ -21,12 +22,12 @@ pub struct StoredValue {
 }
 
 impl StoredValue {
-    /// Current format version (1).
+    /// Current format version.
     /// Increment this when changing the StoredValue structure itself.
     pub const CURRENT_VERSION: u8 = 1;
 
     /// Create a new StoredValue with the current format version.
-    pub fn new(type_version: u32, value: Vec<u8>, memory: Option<Vec<u8>>) -> Self {
+    pub fn new(type_version: SemanticVersion, value: Vec<u8>, memory: Option<Vec<u8>>) -> Self {
         Self {
             version: Self::CURRENT_VERSION,
             type_version,
@@ -52,10 +53,9 @@ pub struct KeyspaceMetadata {
     /// Type name within the WIT definition
     pub type_name: String,
 
-    /// Type schema version, incremented on type definition changes.
-    /// Starts at 1 for new keyspaces. Used to detect when stored values
-    /// were written with an older schema version.
-    pub type_version: u32,
+    /// Type schema version (semantic version).
+    /// Used to detect when stored values were written with a different schema version.
+    pub type_version: SemanticVersion,
 
     /// CRC32 hash of WIT definition (for quick change detection)
     pub type_hash: u32,
@@ -83,7 +83,7 @@ impl KeyspaceMetadata {
             qualified_name,
             wit_definition,
             type_name,
-            type_version: 1,
+            type_version: SemanticVersion::INITIAL,
             type_hash,
             created_at,
         }

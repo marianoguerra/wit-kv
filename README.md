@@ -103,49 +103,25 @@ wit-kv lift --wit types.wit -t user --input alice.bin
 
 Execute WebAssembly Components to filter, transform, and aggregate stored values.
 
-#### Typed vs Low-level
-
-| Approach | Commands | Component Interface | Use Case |
-|----------|----------|---------------------|----------|
-| **Typed** | `map`, `reduce` | Actual WIT types (`filter(point) -> bool`) | Clean, type-safe, recommended |
-| **Low-level** | `map-low`, `reduce-low` | Binary blobs (`filter(binary-export) -> bool`) | Flexible, manual parsing |
-
-#### Typed Operations (Recommended)
-
 Components receive actual WIT types with direct field access:
 
 ```bash
 # Map: filter and transform points
 wit-kv map points \
-  --module ./examples/typed-point-filter/target/wasm32-unknown-unknown/release/typed_point_filter.wasm \
-  --module-wit ./examples/typed-point-filter/wit/typed-map.wit \
+  --module ./examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
+  --module-wit ./examples/point-filter/wit/map.wit \
   --input-type point
 
 # Reduce: aggregate with typed state
 wit-kv reduce users \
-  --module ./examples/typed-sum-scores/target/wasm32-unknown-unknown/release/typed_sum_scores.wasm \
-  --module-wit ./examples/typed-sum-scores/wit/typed-reduce.wit \
+  --module ./examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
+  --module-wit ./examples/sum-scores/wit/reduce.wit \
   --input-type person \
   --state-type total
 # Output: {sum: 305, count: 3}
 ```
 
-#### Low-level Operations
-
-Components receive opaque `binary-export` bytes:
-
-```bash
-# Map with binary-export interface
-wit-kv map-low users --module ./examples/high-score-filter/target/high_score_filter.component.wasm
-
-# Reduce with binary-export state
-wit-kv reduce-low users \
-  --module ./examples/sum-scores/target/sum_scores.component.wasm \
-  --state-wit ./examples/sum-scores/state.wit \
-  --state-type total
-```
-
-See [examples/](examples/) for sample components demonstrating both approaches.
+See [examples/](examples/) for sample components.
 
 ## CLI Reference
 
@@ -178,8 +154,6 @@ See [examples/](examples/) for sample components demonstrating both approaches.
 |---------|-------------|
 | `map <keyspace> --module <wasm> --module-wit <wit> --input-type <type>` | Typed map operation |
 | `reduce <keyspace> --module <wasm> --module-wit <wit> --input-type <type> --state-type <type>` | Typed reduce operation |
-| `map-low <keyspace> --module <wasm>` | Low-level map operation |
-| `reduce-low <keyspace> --module <wasm>` | Low-level reduce operation |
 
 ### Environment Variables
 
@@ -289,20 +263,26 @@ Main buffer (8 bytes):         Linear memory:
 Defined in `kv.wit`:
 
 ```wit
+record semantic-version {
+    major: u32,
+    minor: u32,
+    patch: u32,
+}
+
 record stored-value {
-    version: u8,              // Format version for migrations
-    type-version: u32,        // Schema version at write time
-    value: list<u8>,          // Canonical ABI encoded bytes
-    memory: option<list<u8>>, // Linear memory (for strings/lists)
+    version: u8,                      // Format version for migrations
+    type-version: semantic-version,   // Schema version at write time
+    value: list<u8>,                  // Canonical ABI encoded bytes
+    memory: option<list<u8>>,         // Linear memory (for strings/lists)
 }
 
 record keyspace-metadata {
     name: string,
-    qualified-name: string,   // e.g., "myapp:types/types#user"
-    wit-definition: string,   // Full WIT source
+    qualified-name: string,           // e.g., "myapp:types/types#user"
+    wit-definition: string,           // Full WIT source
     type-name: string,
-    type-version: u32,
-    type-hash: u32,           // CRC32 of WIT definition
+    type-version: semantic-version,   // Semantic version (0.1.0, 1.2.3, etc.)
+    type-hash: u32,                   // CRC32 of WIT definition
     created-at: u64,
 }
 
@@ -311,6 +291,10 @@ record binary-export {
     memory: option<list<u8>>,
 }
 ```
+
+Type versions use semantic versioning with compatibility rules:
+- Pre-1.0 (`0.x.y`): Only patch-level changes are compatible (e.g., `0.1.1` can read `0.1.0`)
+- Post-1.0: Same major version with higher minor/patch can read older versions
 
 ### Type Support
 
@@ -355,12 +339,9 @@ wit-kv/
 │       ├── map.rs        # MapOperation
 │       └── reduce.rs     # ReduceOperation
 ├── examples/
-│   ├── typed-point-filter/   # Typed map (filter by radius)
-│   ├── typed-person-filter/  # Typed map (filter by score)
-│   ├── typed-sum-scores/     # Typed reduce (sum aggregation)
-│   ├── identity-map/         # Low-level map (pass-through)
-│   ├── high-score-filter/    # Low-level map (filter by score)
-│   └── sum-scores/           # Low-level reduce (sum)
+│   ├── point-filter/   # Typed map (filter by radius)
+│   ├── person-filter/  # Typed map (filter by score)
+│   └── sum-scores/     # Typed reduce (sum aggregation)
 ├── kv.wit                # Storage format types
 ├── mapreduce.wit         # Map/reduce interfaces
 └── test.wit              # Test type definitions
