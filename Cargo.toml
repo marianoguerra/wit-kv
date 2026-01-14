@@ -1,0 +1,17 @@
+[package]
+name = "wit-value"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+wit-parser = "0.244"
+wasm-wave = { version = "0.244", features = ["wit"] }
+
+[dev-dependencies]
+wasmtime = { version = "29", default-features = false, features = ["cranelift", "component-model", "runtime"] }
+proptest = "1"
+wat = "1.244"
+wit-component = { version = "0.244", features = ["dummy-module"] }
