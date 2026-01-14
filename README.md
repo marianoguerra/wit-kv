@@ -80,7 +80,7 @@ wit-kv lift --wit types.wit --type-name user --input alice.bin
 | `delete-type <keyspace>` | Remove a keyspace type (add `--delete-data` to remove values too) |
 | `list-types` | List all registered keyspaces and their types |
 | `set <keyspace> <key> --value <wave>` | Store a value (or use `--file <path>` to read from file) |
-| `get <keyspace> <key>` | Retrieve a value (add `--binary` for raw bytes, `--raw` for full format) |
+| `get <keyspace> <key>` | Retrieve a value (add `--binary` for canonical ABI format) |
 | `delete <keyspace> <key>` | Delete a value |
 | `list <keyspace>` | List keys (supports `--prefix` and `--limit`) |
 
@@ -152,11 +152,8 @@ wit-kv set users charlie --file charlie.wave
 **Binary output for pipelines:**
 
 ```bash
-# Output raw canonical ABI bytes (for piping to other tools)
+# Output as binary-export format (canonical ABI, can be decoded with kv.wit types)
 wit-kv get users alice --binary > alice.bin
-
-# Output full stored format (includes metadata)
-wit-kv get users alice --raw > alice.stored
 ```
 
 ---
@@ -206,7 +203,7 @@ Main buffer (8 bytes):         Linear memory:
 └────────────┴────────────┘    └─────────────────┘
 ```
 
-For CLI operations, the linear memory is stored in a `.memory` sidecar file. The KV store handles this transparently.
+The `lower`/`lift` commands and `--binary` flag use the `binary-export` format (defined in `kv.wit`) which packages both the main buffer and linear memory into a single file.
 
 ### Storage Format
 
@@ -228,6 +225,11 @@ record keyspace-metadata {
     type-version: u32,        // Incremented on schema changes
     type-hash: u32,           // CRC32 of WIT definition
     created-at: u64,          // Unix timestamp
+}
+
+record binary-export {
+    value: list<u8>,          // Canonical ABI encoded bytes
+    memory: option<list<u8>>, // Linear memory (for strings/lists)
 }
 ```
 

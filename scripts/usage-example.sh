@@ -134,16 +134,16 @@ check_output "Lift point.bin back to WAVE" \
     "$WIT_KV lift --wit types.wit --type-name point --input point.bin" \
     "x: 42"
 
-# Test 3: Lower a type with a string (creates .memory file)
-run_test "Lower a message with string (creates .memory file)" \
+# Test 3: Lower a type with a string (uses binary-export format with embedded memory)
+run_test "Lower a message with string" \
     "$WIT_KV lower --wit types.wit --type-name message --value '{text: \"hello world\", count: 5}' --output msg.bin"
 
-# Verify both files were created
-run_test "Verify msg.bin and msg.bin.memory were created" \
-    "test -f msg.bin && test -f msg.bin.memory && echo 'msg.bin ('$(wc -c < msg.bin)' bytes) + msg.bin.memory ('$(wc -c < msg.bin.memory)' bytes)'"
+# Verify the file was created
+run_test "Verify msg.bin was created" \
+    "test -f msg.bin && echo 'msg.bin exists (size: '$(wc -c < msg.bin)' bytes)'"
 
 # Test 4: Lift the message back
-check_output "Lift msg.bin back to WAVE (uses .memory file automatically)" \
+check_output "Lift msg.bin back to WAVE" \
     "$WIT_KV lift --wit types.wit --type-name message --input msg.bin" \
     "hello world"
 

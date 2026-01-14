@@ -20,8 +20,10 @@ struct KvTypes {
     resolve: Resolve,
     stored_value_id: TypeId,
     keyspace_metadata_id: TypeId,
+    binary_export_id: TypeId,
     stored_value_wave_type: WaveType,
     keyspace_metadata_wave_type: WaveType,
+    binary_export_wave_type: WaveType,
 }
 
 static KV_TYPES: Lazy<KvTypes> = Lazy::new(|| {
@@ -54,18 +56,31 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
         .map(|(id, _)| id)
         .ok_or_else(|| KvError::TypeNotFound("keyspace-metadata".to_string()))?;
 
+    // Find the binary-export type
+    let binary_export_id = resolve
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("binary-export"))
+        .map(|(id, _)| id)
+        .ok_or_else(|| KvError::TypeNotFound("binary-export".to_string()))?;
+
     let stored_value_wave_type = resolve_wit_type(&resolve, stored_value_id)
         .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
     let keyspace_metadata_wave_type = resolve_wit_type(&resolve, keyspace_metadata_id)
         .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
+    let binary_export_wave_type = resolve_wit_type(&resolve, binary_export_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
     Ok(KvTypes {
         resolve,
         stored_value_id,
         keyspace_metadata_id,
+        binary_export_id,
         stored_value_wave_type,
         keyspace_metadata_wave_type,
+        binary_export_wave_type,
     })
 }
 
@@ -326,6 +341,142 @@ impl KeyspaceMetadata {
     }
 }
 
+/// Binary export wrapper for transferring complete values with memory.
+/// This mirrors the `binary-export` WIT type in kv.wit.
+#[derive(Debug, Clone)]
+pub struct BinaryExport {
+    /// Canonical ABI encoded value buffer
+    pub buffer: Vec<u8>,
+    /// Linear memory bytes (for variable-length types)
+    pub memory: Option<Vec<u8>>,
+}
+
+impl BinaryExport {
+    /// Flat buffer size for the binary-export record in canonical ABI.
+    /// - value: list<u8> = 8 bytes (ptr + len)
+    /// - memory: option<list<u8>> = 12 bytes (discriminant + padding + ptr + len)
+    ///
+    /// Total: 20 bytes
+    pub const FLAT_SIZE: usize = 20;
+
+    /// Create a BinaryExport from a StoredValue.
+    pub fn from_stored(stored: &StoredValue) -> Self {
+        BinaryExport {
+            buffer: stored.value.clone(),
+            memory: stored.memory.clone(),
+        }
+    }
+
+    /// Encode the BinaryExport to binary using canonical ABI.
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let wave_value = self.to_wave_value(&kv.binary_export_wave_type)?;
+
+        let mut memory = LinearMemory::new();
+        let buffer = abi.lower_with_memory(
+            &wave_value,
+            &Type::Id(kv.binary_export_id),
+            &kv.binary_export_wave_type,
+            &mut memory,
+        )?;
+
+        Ok((buffer, memory.into_bytes()))
+    }
+
+    /// Decode a BinaryExport from a single byte slice.
+    /// The first FLAT_SIZE bytes are the flat buffer, the rest is linear memory.
+    pub fn decode_from_bytes(data: &[u8]) -> Result<Self, KvError> {
+        if data.len() < Self::FLAT_SIZE {
+            return Err(KvError::InvalidFormat(format!(
+                "Binary export data too small: {} bytes, need at least {}",
+                data.len(),
+                Self::FLAT_SIZE
+            )));
+        }
+        let (buffer, memory) = data.split_at(Self::FLAT_SIZE);
+        Self::decode(buffer, memory)
+    }
+
+    /// Decode a BinaryExport from separate buffer and memory slices.
+    pub fn decode(buffer: &[u8], memory: &[u8]) -> Result<Self, KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let mem = if memory.is_empty() {
+            LinearMemory::new()
+        } else {
+            LinearMemory::from_bytes(memory.to_vec())
+        };
+
+        let (value, _) = abi.lift_with_memory(
+            buffer,
+            &Type::Id(kv.binary_export_id),
+            &kv.binary_export_wave_type,
+            &mem,
+        )?;
+
+        Self::from_wave_value(&value)
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        let buffer_field_type = get_field_type(wave_type, "value")
+            .ok_or_else(|| KvError::InvalidFormat("Missing value field type".to_string()))?;
+
+        let memory_field_type = get_field_type(wave_type, "memory")
+            .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
+
+        // Build the list<u8> for buffer field
+        let buffer_list: Vec<Value> = self.buffer.iter().map(|&b| Value::make_u8(b)).collect();
+        let buffer_val = Value::make_list(&buffer_field_type, buffer_list)
+            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+        // Build the option<list<u8>> for memory field
+        let memory_val = match &self.memory {
+            Some(mem) => {
+                let inner_list_type = memory_field_type
+                    .option_some_type()
+                    .ok_or_else(|| KvError::InvalidFormat("Expected option type for memory".to_string()))?;
+
+                let mem_list: Vec<Value> = mem.iter().map(|&b| Value::make_u8(b)).collect();
+                let mem_list_val = Value::make_list(&inner_list_type, mem_list)
+                    .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+                Value::make_option(&memory_field_type, Some(mem_list_val))
+                    .map_err(|e| KvError::WaveParse(e.to_string()))?
+            }
+            None => {
+                Value::make_option(&memory_field_type, None)
+                    .map_err(|e| KvError::WaveParse(e.to_string()))?
+            }
+        };
+
+        Value::make_record(wave_type, vec![("value", buffer_val), ("memory", memory_val)])
+            .map_err(|e| KvError::WaveParse(e.to_string()))
+    }
+
+    fn from_wave_value(value: &Value) -> Result<Self, KvError> {
+        let fields: Vec<_> = value.unwrap_record().collect();
+
+        let buffer: Vec<u8> = fields
+            .iter()
+            .find(|(name, _)| name.as_ref() == "value")
+            .map(|(_, v)| v.unwrap_list().map(|e| e.unwrap_u8()).collect())
+            .ok_or_else(|| KvError::InvalidFormat("Missing value field".to_string()))?;
+
+        let memory = fields
+            .iter()
+            .find(|(name, _)| name.as_ref() == "memory")
+            .and_then(|(_, v)| {
+                v.unwrap_option()
+                    .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect())
+            });
+
+        Ok(BinaryExport { buffer, memory })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,5 +523,42 @@ mod tests {
         assert_eq!(original.type_name, decoded.type_name);
         assert_eq!(original.type_version, decoded.type_version);
         assert_eq!(original.type_hash, decoded.type_hash);
+    }
+
+    #[test]
+    fn test_binary_export_roundtrip() {
+        let original = BinaryExport {
+            buffer: vec![1, 2, 3, 4],
+            memory: Some(vec![5, 6, 7, 8]),
+        };
+
+        let (buffer, memory) = original.encode().unwrap();
+        let decoded = BinaryExport::decode(&buffer, &memory).unwrap();
+
+        assert_eq!(original.buffer, decoded.buffer);
+        assert_eq!(original.memory, decoded.memory);
+    }
+
+    #[test]
+    fn test_binary_export_without_memory() {
+        let original = BinaryExport {
+            buffer: vec![10, 20, 30],
+            memory: None,
+        };
+
+        let (buffer, memory) = original.encode().unwrap();
+        let decoded = BinaryExport::decode(&buffer, &memory).unwrap();
+
+        assert_eq!(original.buffer, decoded.buffer);
+        assert_eq!(original.memory, decoded.memory);
+    }
+
+    #[test]
+    fn test_binary_export_from_stored() {
+        let stored = StoredValue::new(1, vec![1, 2, 3], Some(vec![4, 5, 6]));
+        let export = BinaryExport::from_stored(&stored);
+
+        assert_eq!(export.buffer, stored.value);
+        assert_eq!(export.memory, stored.memory);
     }
 }

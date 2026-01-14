@@ -4,7 +4,7 @@ use thiserror::Error;
 use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
-use wit_kv::kv::{KvError, KvStore};
+use wit_kv::kv::{BinaryExport, KvError, KvStore};
 use wit_kv::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 
 #[derive(Error, Debug)]
@@ -175,13 +175,9 @@ enum Commands {
         /// Key for the value
         key: String,
 
-        /// Output raw canonical ABI bytes (value only)
+        /// Output as canonical ABI binary (binary-export WIT type)
         #[arg(long)]
         binary: bool,
-
-        /// Output full stored format (value + memory)
-        #[arg(long)]
-        raw: bool,
 
         /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
@@ -246,26 +242,28 @@ fn main() -> Result<(), AppError> {
             let mut memory = LinearMemory::new();
             let binary = abi.lower_with_memory(&parsed_value, &ty, &wave_type, &mut memory)?;
 
-            std::fs::write(&output, &binary)?;
+            // Export using binary-export WIT type (single file with buffer + memory)
+            let memory_bytes = memory.into_bytes();
+            let export = BinaryExport {
+                buffer: binary,
+                memory: if memory_bytes.is_empty() {
+                    None
+                } else {
+                    Some(memory_bytes)
+                },
+            };
+            let (export_buffer, export_memory) = export.encode()?;
 
-            // Save linear memory if it contains data (for variable-length types)
-            if !memory.is_empty() {
-                let memory_path = format!("{}.memory", output.display());
-                std::fs::write(&memory_path, memory.as_bytes())?;
-                println!(
-                    "Lowered value to {} ({} bytes) + {} ({} bytes)",
-                    output.display(),
-                    binary.len(),
-                    memory_path,
-                    memory.as_bytes().len()
-                );
-            } else {
-                println!(
-                    "Lowered value to {} ({} bytes)",
-                    output.display(),
-                    binary.len()
-                );
-            }
+            // Write combined output
+            let mut file = std::fs::File::create(&output)?;
+            file.write_all(&export_buffer)?;
+            file.write_all(&export_memory)?;
+
+            println!(
+                "Lowered value to {} ({} bytes)",
+                output.display(),
+                export_buffer.len() + export_memory.len()
+            );
             Ok(())
         }
         Commands::Lift {
@@ -278,23 +276,19 @@ fn main() -> Result<(), AppError> {
             let wave_type = resolve_wit_type(&resolve, type_id)
                 .map_err(|e| AppError::WaveParse(e.to_string()))?;
 
-            let binary = std::fs::read(&input)?;
+            // Read binary-export format (single file with buffer + memory)
+            let data = std::fs::read(&input)?;
+            let export = BinaryExport::decode_from_bytes(&data)?;
 
-            // Check for associated .memory file for variable-length types
-            let memory_path = format!("{}.memory", input.display());
-            let memory = if std::path::Path::new(&memory_path).exists() {
-                let memory_bytes = std::fs::read(&memory_path)?;
-                Some(LinearMemory::from_bytes(memory_bytes))
-            } else {
-                None
-            };
-
+            // Lift the value from the exported buffer and memory
             let abi = CanonicalAbi::new(&resolve);
             let ty = Type::Id(type_id);
-            let (value, _bytes_read) = match memory {
-                Some(ref mem) => abi.lift_with_memory(&binary, &ty, &wave_type, mem)?,
-                None => abi.lift(&binary, &ty, &wave_type)?,
-            };
+            let memory = export
+                .memory
+                .map(LinearMemory::from_bytes)
+                .unwrap_or_default();
+            let (value, _bytes_read) =
+                abi.lift_with_memory(&export.buffer, &ty, &wave_type, &memory)?;
 
             let wave_str =
                 wasm_wave::to_string(&value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
@@ -412,23 +406,17 @@ fn main() -> Result<(), AppError> {
             keyspace,
             key,
             binary,
-            raw,
             path,
         } => {
             let store = KvStore::open(&path)?;
-            if binary || raw {
+            if binary {
                 match store.get_raw(&keyspace, &key)? {
                     Some(stored) => {
-                        if raw {
-                            let (buffer, memory) = stored.encode()?;
-                            std::io::stdout().write_all(&buffer)?;
-                            if !memory.is_empty() {
-                                std::io::stdout().write_all(&memory)?;
-                            }
-                        } else {
-                            // binary - just the value bytes
-                            std::io::stdout().write_all(&stored.value)?;
-                        }
+                        // Export using binary-export WIT type (buffer + memory)
+                        let export = BinaryExport::from_stored(&stored);
+                        let (buffer, memory) = export.encode()?;
+                        std::io::stdout().write_all(&buffer)?;
+                        std::io::stdout().write_all(&memory)?;
                     }
                     None => {
                         eprintln!("Key '{}' not found in keyspace '{}'", key, keyspace);

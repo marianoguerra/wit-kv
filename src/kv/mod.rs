@@ -10,5 +10,6 @@ mod store;
 mod types;
 
 pub use error::KvError;
+pub use format::BinaryExport;
 pub use store::KvStore;
 pub use types::{KeyspaceMetadata, StoredValue};

@@ -16,6 +16,15 @@ interface types {
         memory: option<list<u8>>,
     }
 
+    /// Binary export format - self-describing canonical ABI encoding
+    /// for transferring complete values including linear memory
+    record binary-export {
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+        /// Linear memory bytes (for variable-length types)
+        memory: option<list<u8>>,
+    }
+
     /// Keyspace type metadata
     record keyspace-metadata {
         /// User-visible keyspace name
