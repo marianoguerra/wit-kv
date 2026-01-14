@@ -1,7 +1,7 @@
 //! WebAssembly module execution for map/reduce operations.
 //!
 //! This module provides functionality to execute WebAssembly Components
-//! that implement the map/reduce interfaces defined in `mapreduce.wit`.
+//! that implement typed map/reduce operations.
 //!
 //! Components receive actual WIT types with direct field access.
 //! The `TypedRunner` handles type conversion between stored values and

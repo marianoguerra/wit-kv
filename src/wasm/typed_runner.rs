@@ -1,12 +1,7 @@
 //! Typed WebAssembly Component runner.
 //!
 //! This module provides a runner for typed map/reduce operations where
-//! components receive actual WIT types instead of binary-export blobs.
-//!
-//! ## Comparison with WasmRunner
-//!
-//! - `WasmRunner`: Uses `binary-export` type - component receives opaque bytes
-//! - `TypedRunner`: Uses actual WIT types - component receives typed values
+//! components receive actual WIT types.
 //!
 //! ## Example
 //!
@@ -399,8 +394,8 @@ pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
 
 /// Runner for typed WebAssembly Components.
 ///
-/// Unlike `WasmRunner` which uses `binary-export`, this runner works with
-/// actual WIT types, converting between storage format and typed `Val` values.
+/// This runner works with actual WIT types, converting between storage format
+/// and typed `Val` values.
 pub struct TypedRunner {
     engine: Engine,
     store: Store<()>,

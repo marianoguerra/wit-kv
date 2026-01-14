@@ -1,7 +1,7 @@
 /// Typed Map interface for point types
 ///
-/// Unlike the binary-export approach, this interface uses actual WIT types.
-/// The component receives and returns typed values directly.
+/// This interface uses actual WIT types - the component receives and returns
+/// typed values directly.
 package wit-kv:typed-map@0.1.0;
 
 interface types {

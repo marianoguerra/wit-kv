@@ -351,7 +351,6 @@ wit-kv/
 │   ├── point-to-magnitude/ # Typed map: Point -> Magnitude (T -> T1 transformation)
 │   └── sum-scores/         # Typed reduce: Person -> Total (sum aggregation)
 ├── kv.wit                # Storage format types
-├── mapreduce.wit         # Map/reduce interfaces
 └── test.wit              # Test type definitions
 ```
 
