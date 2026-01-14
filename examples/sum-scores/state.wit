@@ -1,7 +1,0 @@
-// State type for sum-scores reduce operation
-package wit-kv:example;
-
-interface types {
-    // The state is just a u64 representing the total sum
-    type total = u64;
-}

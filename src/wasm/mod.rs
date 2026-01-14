@@ -3,17 +3,9 @@
 //! This module provides functionality to execute WebAssembly Components
 //! that implement the map/reduce interfaces defined in `mapreduce.wit`.
 //!
-//! ## Two Approaches
-//!
-//! ### Binary-export (low-level)
-//! - `WasmRunner` - components receive `binary-export` type
-//! - Components must parse bytes manually
-//! - Used by `map-low` and `reduce-low` commands
-//!
-//! ### Typed (high-level)
-//! - `TypedRunner` - components receive actual WIT types
-//! - Direct field access, type-safe
-//! - Used by `map` and `reduce` commands
+//! Components receive actual WIT types with direct field access.
+//! The `TypedRunner` handles type conversion between stored values and
+//! component interfaces, used by the `map` and `reduce` commands.
 
 mod error;
 mod map;

@@ -1,58 +1,71 @@
-//! Sum-scores reduce component - sums all score fields from person records.
+//! Typed sum-scores reduce component - sums all scores from person records.
 //!
-//! This component assumes values are `person` records with layout:
-//! - offset 0: age (u8)
-//! - offset 4: score (u32, little-endian)
+//! This is the TYPED equivalent of `sum-scores`.
 //!
-//! The state is a u64 representing the running total.
-//! Final output is the sum of all scores as a u64.
+//! Compare the implementations:
+//!
+//! ## sum-scores (binary-export approach):
+//! ```rust,ignore
+//! fn init_state() -> BinaryExport {
+//!     let sum: u64 = 0;
+//!     BinaryExport { value: sum.to_le_bytes().to_vec(), memory: None }
+//! }
+//!
+//! fn reduce(state: BinaryExport, value: BinaryExport) -> BinaryExport {
+//!     let current_sum = u64::from_le_bytes([state.value[0], ...]);
+//!     let score = u32::from_le_bytes([value.value[4], ...]);
+//!     // ... manual byte manipulation
+//! }
+//! ```
+//!
+//! ## typed-sum-scores (typed approach):
+//! ```rust,ignore
+//! fn init_state() -> Total {
+//!     Total { sum: 0, count: 0 }
+//! }
+//!
+//! fn reduce(state: Total, value: Person) -> Total {
+//!     Total {
+//!         sum: state.sum + value.score as u64,
+//!         count: state.count + 1,
+//!     }
+//! }
+//! ```
+//!
+//! The typed approach is:
+//! - Cleaner: no manual byte parsing
+//! - Safer: type-checked at compile time
+//! - Simpler: direct field access
 
 wit_bindgen::generate!({
-    world: "reduce-module",
+    world: "typed-reduce-module",
     path: "wit",
 });
 
-struct SumScores;
+struct TypedSumScores;
 
-impl Guest for SumScores {
-    /// Initialize state to 0 (u64, little-endian).
-    fn init_state() -> BinaryExport {
-        let sum: u64 = 0;
-        BinaryExport {
-            value: sum.to_le_bytes().to_vec(),
-            memory: None,
-        }
+impl Guest for TypedSumScores {
+    /// Initialize state to zero.
+    ///
+    /// Compare to sum-scores which must manually encode u64 to bytes.
+    fn init_state() -> Total {
+        Total { sum: 0, count: 0 }
     }
 
-    /// Add the score from the person record to the running total.
-    fn reduce(state: BinaryExport, value: BinaryExport) -> BinaryExport {
-        // Decode current sum from state (u64, little-endian)
-        let current_sum = if state.value.len() >= 8 {
-            u64::from_le_bytes([
-                state.value[0], state.value[1], state.value[2], state.value[3],
-                state.value[4], state.value[5], state.value[6], state.value[7],
-            ])
-        } else {
-            0
-        };
-
-        // Extract score from person record (u32 at offset 4)
-        let score = if value.value.len() >= 8 {
-            u32::from_le_bytes([
-                value.value[4], value.value[5], value.value[6], value.value[7],
-            ])
-        } else {
-            0
-        };
-
-        // Compute new sum
-        let new_sum = current_sum + score as u64;
-
-        BinaryExport {
-            value: new_sum.to_le_bytes().to_vec(),
-            memory: None,
+    /// Add the person's score to the running total.
+    ///
+    /// Compare to sum-scores which must:
+    /// 1. Decode u64 from state bytes
+    /// 2. Extract u32 score at offset 4 from value bytes
+    /// 3. Encode new u64 sum back to bytes
+    ///
+    /// Here we just access fields directly!
+    fn reduce(state: Total, value: Person) -> Total {
+        Total {
+            sum: state.sum + value.score as u64,
+            count: state.count + 1,
         }
     }
 }
 
-export!(SumScores);
+export!(TypedSumScores);
