@@ -6,6 +6,7 @@
 use thiserror::Error;
 use wasm_wave::value::{Type as WaveType, Value};
 use wasm_wave::wasm::{WasmType, WasmValue};
+use wasmtime::component::{types as val_types, Val};
 use wit_parser::{FlagsRepr, Int, Resolve, SizeAlign, Type, TypeDefKind};
 
 /// Align a value up to the nearest multiple of alignment.
@@ -1297,5 +1298,970 @@ impl<'a> CanonicalAbi<'a> {
                 Ok(u64::from_le_bytes(bytes) as u32)
             }
         }
+    }
+
+    // ============================================================================
+    // Direct Val lift/lower functions (hot path - no intermediate wasm_wave::Value)
+    // ============================================================================
+
+    /// Lift binary data directly to wasmtime::component::Val.
+    /// This is the hot path for TypedRunner, bypassing wasm_wave::Value.
+    pub fn lift_to_val(
+        &self,
+        buffer: &[u8],
+        wit_ty: &Type,
+        val_ty: &val_types::Type,
+        memory: &LinearMemory,
+    ) -> Result<(Val, usize), CanonicalAbiError> {
+        self.lift_val_from(buffer, wit_ty, val_ty, 0, memory)
+    }
+
+    /// Lift a Val from a buffer at the given offset.
+    fn lift_val_from(
+        &self,
+        buffer: &[u8],
+        wit_ty: &Type,
+        val_ty: &val_types::Type,
+        offset: usize,
+        memory: &LinearMemory,
+    ) -> Result<(Val, usize), CanonicalAbiError> {
+        let size = self.sizes.size(wit_ty).size_wasm32();
+        if offset + size > buffer.len() {
+            return Err(CanonicalAbiError::BufferTooSmall {
+                needed: offset + size,
+                available: buffer.len(),
+            });
+        }
+
+        let val = match wit_ty {
+            Type::Bool => {
+                let v = read_byte(buffer, offset)?;
+                match v {
+                    0 => Val::Bool(false),
+                    1 => Val::Bool(true),
+                    _ => return Err(CanonicalAbiError::InvalidBool(v)),
+                }
+            }
+            Type::U8 => Val::U8(read_byte(buffer, offset)?),
+            Type::S8 => Val::S8(read_byte(buffer, offset)? as i8),
+            Type::U16 => {
+                let aligned = align_to(offset, 2);
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 2,
+                        available: buffer.len(),
+                    })?;
+                Val::U16(u16::from_le_bytes(bytes))
+            }
+            Type::S16 => {
+                let aligned = align_to(offset, 2);
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 2,
+                        available: buffer.len(),
+                    })?;
+                Val::S16(i16::from_le_bytes(bytes))
+            }
+            Type::U32 => {
+                let aligned = align_to(offset, 4);
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 4,
+                        available: buffer.len(),
+                    })?;
+                Val::U32(u32::from_le_bytes(bytes))
+            }
+            Type::S32 => {
+                let aligned = align_to(offset, 4);
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 4,
+                        available: buffer.len(),
+                    })?;
+                Val::S32(i32::from_le_bytes(bytes))
+            }
+            Type::U64 => {
+                let aligned = align_to(offset, 8);
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 8,
+                        available: buffer.len(),
+                    })?;
+                Val::U64(u64::from_le_bytes(bytes))
+            }
+            Type::S64 => {
+                let aligned = align_to(offset, 8);
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 8,
+                        available: buffer.len(),
+                    })?;
+                Val::S64(i64::from_le_bytes(bytes))
+            }
+            Type::F32 => {
+                let aligned = align_to(offset, 4);
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 4,
+                        available: buffer.len(),
+                    })?;
+                Val::Float32(f32::from_le_bytes(bytes))
+            }
+            Type::F64 => {
+                let aligned = align_to(offset, 8);
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 8,
+                        available: buffer.len(),
+                    })?;
+                Val::Float64(f64::from_le_bytes(bytes))
+            }
+            Type::Char => {
+                let aligned = align_to(offset, 4);
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 4,
+                        available: buffer.len(),
+                    })?;
+                let code = u32::from_le_bytes(bytes);
+                let c = char::from_u32(code).ok_or(CanonicalAbiError::InvalidChar(code))?;
+                Val::Char(c)
+            }
+            Type::String => {
+                // Strings are stored as ptr + len in the canonical ABI
+                let aligned = align_to(offset, 4);
+                let ptr_bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 4,
+                        available: buffer.len(),
+                    })?;
+                let len_bytes: [u8; 4] = read_slice(buffer, aligned + 4, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 8,
+                        available: buffer.len(),
+                    })?;
+
+                let ptr = u32::from_le_bytes(ptr_bytes);
+                let len = u32::from_le_bytes(len_bytes);
+
+                let string_bytes = memory.read(ptr, len)?;
+                let s = std::str::from_utf8(string_bytes)
+                    .map_err(|_| CanonicalAbiError::InvalidUtf8)?;
+                Val::String(s.to_string())
+            }
+            Type::Id(id) => {
+                return self.lift_val_type_id(buffer, *id, val_ty, offset, memory);
+            }
+            Type::ErrorContext => {
+                return Err(CanonicalAbiError::UnsupportedType(
+                    "error-context".to_string(),
+                ));
+            }
+        };
+
+        Ok((val, size))
+    }
+
+    fn lift_val_type_id(
+        &self,
+        buffer: &[u8],
+        id: wit_parser::TypeId,
+        val_ty: &val_types::Type,
+        offset: usize,
+        memory: &LinearMemory,
+    ) -> Result<(Val, usize), CanonicalAbiError> {
+        let ty_def = self.resolve.types.get(id).ok_or_else(|| {
+            CanonicalAbiError::UnsupportedType(format!("Unknown type id: {:?}", id))
+        })?;
+        let size = self.sizes.size(&Type::Id(id)).size_wasm32();
+
+        let val = match &ty_def.kind {
+            TypeDefKind::Type(t) => {
+                let (v, _) = self.lift_val_from(buffer, t, val_ty, offset, memory)?;
+                return Ok((v, size));
+            }
+            TypeDefKind::Record(r) => {
+                let record_ty = match val_ty {
+                    val_types::Type::Record(rt) => rt,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "record".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let field_offsets: Vec<_> = self
+                    .sizes
+                    .field_offsets(r.fields.iter().map(|f| &f.ty))
+                    .into_iter()
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
+                    .collect();
+
+                let val_fields: Vec<_> = record_ty.fields().collect();
+                let mut fields: Vec<(String, Val)> = Vec::with_capacity(r.fields.len());
+
+                for (i, field_def) in r.fields.iter().enumerate() {
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("field offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let val_field = val_fields.iter().find(|f| f.name == field_def.name).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("field '{}' in Val type", field_def.name),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let (field_val, _) = self.lift_val_from(
+                        buffer,
+                        &field_def.ty,
+                        &val_field.ty,
+                        offset + field_off,
+                        memory,
+                    )?;
+                    fields.push((field_def.name.clone(), field_val));
+                }
+
+                Val::Record(fields)
+            }
+            TypeDefKind::Tuple(t) => {
+                let tuple_ty = match val_ty {
+                    val_types::Type::Tuple(tt) => tt,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "tuple".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let field_offsets: Vec<_> = self
+                    .sizes
+                    .field_offsets(t.types.iter())
+                    .into_iter()
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
+                    .collect();
+
+                let val_types: Vec<_> = tuple_ty.types().collect();
+                let mut elements: Vec<Val> = Vec::with_capacity(t.types.len());
+
+                for (i, wit_ty) in t.types.iter().enumerate() {
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let elem_val_ty = val_types.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple element type at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let (elem_val, _) =
+                        self.lift_val_from(buffer, wit_ty, elem_val_ty, offset + field_off, memory)?;
+                    elements.push(elem_val);
+                }
+
+                Val::Tuple(elements)
+            }
+            TypeDefKind::List(elem_ty) => {
+                let list_ty = match val_ty {
+                    val_types::Type::List(lt) => lt,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "list".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let aligned = align_to(offset, 4);
+                let ptr_bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 4,
+                        available: buffer.len(),
+                    })?;
+                let len_bytes: [u8; 4] = read_slice(buffer, aligned + 4, 4)?
+                    .try_into()
+                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                        needed: aligned + 8,
+                        available: buffer.len(),
+                    })?;
+
+                let ptr = u32::from_le_bytes(ptr_bytes);
+                let len = u32::from_le_bytes(len_bytes);
+
+                let elem_size = self.sizes.size(elem_ty).size_wasm32();
+                let elem_val_ty = list_ty.ty();
+
+                let mut elements: Vec<Val> = Vec::with_capacity(len as usize);
+                for i in 0..len as usize {
+                    let elem_offset = ptr as usize + i * elem_size;
+                    let elem_bytes = memory.read(elem_offset as u32, elem_size as u32)?;
+                    let (elem_val, _) =
+                        self.lift_val_from(elem_bytes, elem_ty, &elem_val_ty, 0, memory)?;
+                    elements.push(elem_val);
+                }
+
+                Val::List(elements)
+            }
+            TypeDefKind::Option(inner_ty) => {
+                let option_ty = match val_ty {
+                    val_types::Type::Option(ot) => ot,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "option".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let discriminant = read_byte(buffer, offset)?;
+                let payload_offset = self.sizes.payload_offset(Int::U8, [Some(inner_ty)]);
+                let inner_val_ty = option_ty.ty();
+
+                match discriminant {
+                    0 => Val::Option(None),
+                    1 => {
+                        let (inner_val, _) = self.lift_val_from(
+                            buffer,
+                            inner_ty,
+                            &inner_val_ty,
+                            offset + payload_offset.size_wasm32(),
+                            memory,
+                        )?;
+                        Val::Option(Some(Box::new(inner_val)))
+                    }
+                    _ => {
+                        return Err(CanonicalAbiError::InvalidDiscriminant {
+                            discriminant: discriminant as u32,
+                            num_cases: 2,
+                        })
+                    }
+                }
+            }
+            TypeDefKind::Result(r) => {
+                let result_ty = match val_ty {
+                    val_types::Type::Result(rt) => rt,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "result".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let discriminant = read_byte(buffer, offset)?;
+                let payload_offset = self
+                    .sizes
+                    .payload_offset(Int::U8, [r.ok.as_ref(), r.err.as_ref()]);
+
+                match discriminant {
+                    0 => {
+                        let ok_val = if let Some(ok_ty) = &r.ok {
+                            if let Some(ok_val_ty) = result_ty.ok() {
+                                let (val, _) = self.lift_val_from(
+                                    buffer,
+                                    ok_ty,
+                                    &ok_val_ty,
+                                    offset + payload_offset.size_wasm32(),
+                                    memory,
+                                )?;
+                                Some(Box::new(val))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        Val::Result(Ok(ok_val))
+                    }
+                    1 => {
+                        let err_val = if let Some(err_ty) = &r.err {
+                            if let Some(err_val_ty) = result_ty.err() {
+                                let (val, _) = self.lift_val_from(
+                                    buffer,
+                                    err_ty,
+                                    &err_val_ty,
+                                    offset + payload_offset.size_wasm32(),
+                                    memory,
+                                )?;
+                                Some(Box::new(val))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        Val::Result(Err(err_val))
+                    }
+                    _ => {
+                        return Err(CanonicalAbiError::InvalidDiscriminant {
+                            discriminant: discriminant as u32,
+                            num_cases: 2,
+                        })
+                    }
+                }
+            }
+            TypeDefKind::Variant(v) => {
+                let variant_ty = match val_ty {
+                    val_types::Type::Variant(vt) => vt,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "variant".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let discriminant = self.read_discriminant(buffer, offset, v.tag())?;
+                let case = v.cases.get(discriminant as usize).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
+                        discriminant,
+                        num_cases: v.cases.len(),
+                    },
+                )?;
+                let payload_offset = self
+                    .sizes
+                    .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
+
+                let val_cases: Vec<_> = variant_ty.cases().collect();
+                let payload = if let Some(payload_ty) = &case.ty {
+                    let val_case = val_cases.iter().find(|c| c.name == case.name).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("variant case '{}' in Val type", case.name),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    if let Some(payload_val_ty) = &val_case.ty {
+                        let (payload_val, _) = self.lift_val_from(
+                            buffer,
+                            payload_ty,
+                            payload_val_ty,
+                            offset + payload_offset.size_wasm32(),
+                            memory,
+                        )?;
+                        Some(Box::new(payload_val))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                Val::Variant(case.name.clone(), payload)
+            }
+            TypeDefKind::Enum(e) => {
+                let discriminant = self.read_discriminant(buffer, offset, e.tag())?;
+                let case = e.cases.get(discriminant as usize).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
+                        discriminant,
+                        num_cases: e.cases.len(),
+                    },
+                )?;
+                Val::Enum(case.name.clone())
+            }
+            TypeDefKind::Flags(f) => {
+                let flag_names: Vec<_> = f.flags.iter().map(|flag| &flag.name).collect();
+                let flags_value = match f.repr() {
+                    FlagsRepr::U8 => read_byte(buffer, offset)? as u32,
+                    FlagsRepr::U16 => {
+                        let aligned = align_to(offset, 2);
+                        let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
+                            .try_into()
+                            .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                                needed: aligned + 2,
+                                available: buffer.len(),
+                            })?;
+                        u16::from_le_bytes(bytes) as u32
+                    }
+                    FlagsRepr::U32(_) => {
+                        let aligned = align_to(offset, 4);
+                        let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                            .try_into()
+                            .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                                needed: aligned + 4,
+                                available: buffer.len(),
+                            })?;
+                        u32::from_le_bytes(bytes)
+                    }
+                };
+
+                let active_flags: Vec<String> = flag_names
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| (flags_value >> i) & 1 == 1)
+                    .map(|(_, name)| (*name).clone())
+                    .collect();
+
+                Val::Flags(active_flags)
+            }
+            TypeDefKind::Handle(_) => {
+                return Err(CanonicalAbiError::UnsupportedType("handle".to_string()));
+            }
+            TypeDefKind::Resource => {
+                return Err(CanonicalAbiError::UnsupportedType("resource".to_string()));
+            }
+            TypeDefKind::Future(_) => {
+                return Err(CanonicalAbiError::UnsupportedType("future".to_string()));
+            }
+            TypeDefKind::Stream(_) => {
+                return Err(CanonicalAbiError::UnsupportedType("stream".to_string()));
+            }
+            TypeDefKind::FixedSizeList(elem_ty, len) => {
+                let list_ty = match val_ty {
+                    val_types::Type::List(lt) => lt,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "list".to_string(),
+                            got: format!("{:?}", val_ty),
+                        })
+                    }
+                };
+
+                let elem_size = self.sizes.size(elem_ty).size_wasm32();
+                let elem_val_ty = list_ty.ty();
+
+                let mut elements: Vec<Val> = Vec::with_capacity(*len as usize);
+                for i in 0..*len as usize {
+                    let (elem_val, _) = self.lift_val_from(
+                        buffer,
+                        elem_ty,
+                        &elem_val_ty,
+                        offset + i * elem_size,
+                        memory,
+                    )?;
+                    elements.push(elem_val);
+                }
+
+                Val::List(elements)
+            }
+            TypeDefKind::Map(_, _) => {
+                return Err(CanonicalAbiError::UnsupportedType("map".to_string()));
+            }
+            TypeDefKind::Unknown => {
+                return Err(CanonicalAbiError::UnsupportedType("unknown".to_string()));
+            }
+        };
+
+        Ok((val, size))
+    }
+
+    /// Lower a wasmtime::component::Val directly to binary.
+    /// This is the hot path for TypedRunner, bypassing wasm_wave::Value.
+    pub fn lower_from_val(
+        &self,
+        val: &Val,
+        wit_ty: &Type,
+        memory: &mut LinearMemory,
+    ) -> Result<Vec<u8>, CanonicalAbiError> {
+        let size = self.sizes.size(wit_ty).size_wasm32();
+        let mut buffer = vec![0u8; size];
+        self.lower_val_into(val, wit_ty, &mut buffer, 0, memory)?;
+        Ok(buffer)
+    }
+
+    /// Lower a Val into a buffer at the given offset.
+    fn lower_val_into(
+        &self,
+        val: &Val,
+        wit_ty: &Type,
+        buffer: &mut [u8],
+        offset: usize,
+        memory: &mut LinearMemory,
+    ) -> Result<(), CanonicalAbiError> {
+        match (wit_ty, val) {
+            (Type::Bool, Val::Bool(v)) => {
+                write_byte(buffer, offset, if *v { 1 } else { 0 })?;
+            }
+            (Type::U8, Val::U8(v)) => {
+                write_byte(buffer, offset, *v)?;
+            }
+            (Type::S8, Val::S8(v)) => {
+                write_byte(buffer, offset, *v as u8)?;
+            }
+            (Type::U16, Val::U16(v)) => {
+                let aligned = align_to(offset, 2);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::S16, Val::S16(v)) => {
+                let aligned = align_to(offset, 2);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::U32, Val::U32(v)) => {
+                let aligned = align_to(offset, 4);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::S32, Val::S32(v)) => {
+                let aligned = align_to(offset, 4);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::U64, Val::U64(v)) => {
+                let aligned = align_to(offset, 8);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::S64, Val::S64(v)) => {
+                let aligned = align_to(offset, 8);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::F32, Val::Float32(v)) => {
+                let aligned = align_to(offset, 4);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::F64, Val::Float64(v)) => {
+                let aligned = align_to(offset, 8);
+                write_slice(buffer, aligned, &v.to_le_bytes())?;
+            }
+            (Type::Char, Val::Char(c)) => {
+                let aligned = align_to(offset, 4);
+                write_slice(buffer, aligned, &(*c as u32).to_le_bytes())?;
+            }
+            (Type::String, Val::String(s)) => {
+                let aligned = align_to(offset, 4);
+                let ptr = memory.alloc(s.len(), 1);
+                memory.write(ptr, s.as_bytes());
+                write_slice(buffer, aligned, &ptr.to_le_bytes())?;
+                write_slice(buffer, aligned + 4, &(s.len() as u32).to_le_bytes())?;
+            }
+            (Type::Id(id), _) => {
+                self.lower_val_type_id(val, *id, buffer, offset, memory)?;
+            }
+            (Type::ErrorContext, _) => {
+                return Err(CanonicalAbiError::UnsupportedType(
+                    "error-context".to_string(),
+                ));
+            }
+            _ => {
+                return Err(CanonicalAbiError::TypeMismatch {
+                    expected: format!("{:?}", wit_ty),
+                    got: format!("{:?}", val),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn lower_val_type_id(
+        &self,
+        val: &Val,
+        id: wit_parser::TypeId,
+        buffer: &mut [u8],
+        offset: usize,
+        memory: &mut LinearMemory,
+    ) -> Result<(), CanonicalAbiError> {
+        let ty_def = self.resolve.types.get(id).ok_or_else(|| {
+            CanonicalAbiError::UnsupportedType(format!("Unknown type id: {:?}", id))
+        })?;
+
+        match &ty_def.kind {
+            TypeDefKind::Type(t) => {
+                self.lower_val_into(val, t, buffer, offset, memory)?;
+            }
+            TypeDefKind::Record(r) => {
+                let fields = match val {
+                    Val::Record(f) => f,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "record".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let field_offsets: Vec<_> = self
+                    .sizes
+                    .field_offsets(r.fields.iter().map(|f| &f.ty))
+                    .into_iter()
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
+                    .collect();
+
+                for (i, field_def) in r.fields.iter().enumerate() {
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("field offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let (_, field_val) = fields
+                        .iter()
+                        .find(|(name, _)| name == &field_def.name)
+                        .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                            expected: format!("field '{}'", field_def.name),
+                            got: "missing".to_string(),
+                        })?;
+                    self.lower_val_into(field_val, &field_def.ty, buffer, offset + field_off, memory)?;
+                }
+            }
+            TypeDefKind::Tuple(t) => {
+                let elements = match val {
+                    Val::Tuple(e) => e,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "tuple".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let field_offsets: Vec<_> = self
+                    .sizes
+                    .field_offsets(t.types.iter())
+                    .into_iter()
+                    .map(|(off, ty)| (off.size_wasm32(), *ty))
+                    .collect();
+
+                for (i, wit_ty) in t.types.iter().enumerate() {
+                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
+                        CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple offset at index {}", i),
+                            got: "missing".to_string(),
+                        }
+                    })?;
+                    let elem = elements.get(i).ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                        expected: format!("tuple element at index {}", i),
+                        got: "missing".to_string(),
+                    })?;
+                    self.lower_val_into(elem, wit_ty, buffer, offset + field_off, memory)?;
+                }
+            }
+            TypeDefKind::List(elem_ty) => {
+                let elements = match val {
+                    Val::List(e) => e,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "list".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let aligned = align_to(offset, 4);
+                let elem_size = self.sizes.size(elem_ty).size_wasm32();
+                let elem_align = self.sizes.align(elem_ty).align_wasm32();
+
+                let ptr = memory.alloc(elements.len() * elem_size, elem_align);
+
+                for (i, elem) in elements.iter().enumerate() {
+                    let elem_offset = ptr as usize + i * elem_size;
+                    let mut elem_buf = vec![0u8; elem_size];
+                    self.lower_val_into(elem, elem_ty, &mut elem_buf, 0, memory)?;
+                    memory.write(elem_offset as u32, &elem_buf);
+                }
+
+                write_slice(buffer, aligned, &ptr.to_le_bytes())?;
+                write_slice(buffer, aligned + 4, &(elements.len() as u32).to_le_bytes())?;
+            }
+            TypeDefKind::Option(inner_ty) => {
+                let payload_offset = self.sizes.payload_offset(Int::U8, [Some(inner_ty)]);
+
+                match val {
+                    Val::Option(Some(inner_val)) => {
+                        write_byte(buffer, offset, 1)?;
+                        self.lower_val_into(
+                            inner_val,
+                            inner_ty,
+                            buffer,
+                            offset + payload_offset.size_wasm32(),
+                            memory,
+                        )?;
+                    }
+                    Val::Option(None) => {
+                        write_byte(buffer, offset, 0)?;
+                    }
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "option".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                }
+            }
+            TypeDefKind::Result(r) => {
+                let payload_offset = self
+                    .sizes
+                    .payload_offset(Int::U8, [r.ok.as_ref(), r.err.as_ref()]);
+
+                match val {
+                    Val::Result(Ok(ok_val)) => {
+                        write_byte(buffer, offset, 0)?;
+                        if let (Some(ok_ty), Some(v)) = (&r.ok, ok_val) {
+                            self.lower_val_into(
+                                v,
+                                ok_ty,
+                                buffer,
+                                offset + payload_offset.size_wasm32(),
+                                memory,
+                            )?;
+                        }
+                    }
+                    Val::Result(Err(err_val)) => {
+                        write_byte(buffer, offset, 1)?;
+                        if let (Some(err_ty), Some(v)) = (&r.err, err_val) {
+                            self.lower_val_into(
+                                v,
+                                err_ty,
+                                buffer,
+                                offset + payload_offset.size_wasm32(),
+                                memory,
+                            )?;
+                        }
+                    }
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "result".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                }
+            }
+            TypeDefKind::Variant(v) => {
+                let (case_name, payload) = match val {
+                    Val::Variant(name, p) => (name, p),
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "variant".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let case_idx = v
+                    .cases
+                    .iter()
+                    .position(|c| &c.name == case_name)
+                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                        discriminant: 0,
+                        num_cases: v.cases.len(),
+                    })?;
+
+                self.write_discriminant(buffer, offset, v.tag(), case_idx as u32)?;
+
+                if let Some(payload_val) = payload {
+                    let payload_offset = self
+                        .sizes
+                        .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
+                    let case = &v.cases[case_idx];
+                    if let Some(payload_ty) = &case.ty {
+                        self.lower_val_into(
+                            payload_val,
+                            payload_ty,
+                            buffer,
+                            offset + payload_offset.size_wasm32(),
+                            memory,
+                        )?;
+                    }
+                }
+            }
+            TypeDefKind::Enum(e) => {
+                let case_name = match val {
+                    Val::Enum(name) => name,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "enum".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let case_idx = e
+                    .cases
+                    .iter()
+                    .position(|c| &c.name == case_name)
+                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                        discriminant: 0,
+                        num_cases: e.cases.len(),
+                    })?;
+
+                self.write_discriminant(buffer, offset, e.tag(), case_idx as u32)?;
+            }
+            TypeDefKind::Flags(f) => {
+                let active_flags = match val {
+                    Val::Flags(flags) => flags,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "flags".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let mut flags_value = 0u32;
+                for flag in active_flags {
+                    if let Some(pos) = f.flags.iter().position(|fl| &fl.name == flag) {
+                        flags_value |= 1 << pos;
+                    }
+                }
+
+                match f.repr() {
+                    FlagsRepr::U8 => {
+                        write_byte(buffer, offset, flags_value as u8)?;
+                    }
+                    FlagsRepr::U16 => {
+                        let aligned = align_to(offset, 2);
+                        write_slice(buffer, aligned, &(flags_value as u16).to_le_bytes())?;
+                    }
+                    FlagsRepr::U32(n) => {
+                        let aligned = align_to(offset, 4);
+                        for i in 0..n {
+                            let word = if i == 0 { flags_value } else { 0 };
+                            let word_offset = aligned + (i * 4);
+                            write_slice(buffer, word_offset, &word.to_le_bytes())?;
+                        }
+                    }
+                }
+            }
+            TypeDefKind::Handle(_) => {
+                return Err(CanonicalAbiError::UnsupportedType("handle".to_string()));
+            }
+            TypeDefKind::Resource => {
+                return Err(CanonicalAbiError::UnsupportedType("resource".to_string()));
+            }
+            TypeDefKind::Future(_) => {
+                return Err(CanonicalAbiError::UnsupportedType("future".to_string()));
+            }
+            TypeDefKind::Stream(_) => {
+                return Err(CanonicalAbiError::UnsupportedType("stream".to_string()));
+            }
+            TypeDefKind::FixedSizeList(elem_ty, len) => {
+                let elements = match val {
+                    Val::List(e) => e,
+                    _ => {
+                        return Err(CanonicalAbiError::TypeMismatch {
+                            expected: "list".to_string(),
+                            got: format!("{:?}", val),
+                        })
+                    }
+                };
+
+                let elem_size = self.sizes.size(elem_ty).size_wasm32();
+                for i in 0..*len as usize {
+                    if let Some(elem) = elements.get(i) {
+                        self.lower_val_into(elem, elem_ty, buffer, offset + i * elem_size, memory)?;
+                    }
+                }
+            }
+            TypeDefKind::Map(_, _) => {
+                return Err(CanonicalAbiError::UnsupportedType("map".to_string()));
+            }
+            TypeDefKind::Unknown => {
+                return Err(CanonicalAbiError::UnsupportedType("unknown".to_string()));
+            }
+        }
+        Ok(())
     }
 }

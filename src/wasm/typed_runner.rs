@@ -491,13 +491,12 @@ impl TypedRunner {
     }
 
     /// Convert a StoredValue to a typed Val for function calls.
+    /// Uses direct binary -> Val conversion (hot path, bypasses wasm_wave::Value).
     pub fn stored_to_val(
         &self,
         stored: &StoredValue,
         func_param_type: &types::Type,
     ) -> Result<Val, WasmError> {
-        // Step 1: Lift binary to wasm_wave::Value using CanonicalAbi
-        let wave_type = self.input_wave_type()?;
         let memory = stored
             .memory
             .as_ref()
@@ -505,30 +504,24 @@ impl TypedRunner {
             .unwrap_or_default();
 
         let abi = CanonicalAbi::new(&self.resolve);
-        let (wave_value, _) = abi.lift_with_memory(
+        let (val, _) = abi.lift_to_val(
             &stored.value,
             &wit_parser::Type::Id(self.input_type_id),
-            &wave_type,
+            func_param_type,
             &memory,
         )?;
 
-        // Step 2: Convert wasm_wave::Value to wasmtime::Val
-        wave_to_val(&wave_value, func_param_type)
+        Ok(val)
     }
 
     /// Convert a typed Val result back to StoredValue.
+    /// Uses direct Val -> binary conversion (hot path, bypasses wasm_wave::Value).
     pub fn val_to_stored(&self, val: &Val, type_version: SemanticVersion) -> Result<StoredValue, WasmError> {
-        // Step 1: Convert wasmtime::Val to wasm_wave::Value
-        let wave_type = self.output_wave_type()?;
-        let wave_value = val_to_wave(val, &wave_type)?;
-
-        // Step 2: Lower wasm_wave::Value to binary using CanonicalAbi
         let mut memory = LinearMemory::new();
         let abi = CanonicalAbi::new(&self.resolve);
-        let buffer = abi.lower_with_memory(
-            &wave_value,
+        let buffer = abi.lower_from_val(
+            val,
             &wit_parser::Type::Id(self.output_type_id),
-            &wave_type,
             &mut memory,
         )?;
 
@@ -671,6 +664,7 @@ impl TypedRunner {
     }
 
     /// Convert a state StoredValue to a typed Val for reduce calls.
+    /// Uses direct binary -> Val conversion (hot path, bypasses wasm_wave::Value).
     ///
     /// This uses the output_type_id (state type) for conversion.
     pub fn state_to_val(
@@ -678,8 +672,6 @@ impl TypedRunner {
         stored: &StoredValue,
         func_param_type: &types::Type,
     ) -> Result<Val, WasmError> {
-        // Step 1: Lift binary to wasm_wave::Value using CanonicalAbi
-        let wave_type = self.output_wave_type()?; // State type is output_type
         let memory = stored
             .memory
             .as_ref()
@@ -687,15 +679,14 @@ impl TypedRunner {
             .unwrap_or_default();
 
         let abi = CanonicalAbi::new(&self.resolve);
-        let (wave_value, _) = abi.lift_with_memory(
+        let (val, _) = abi.lift_to_val(
             &stored.value,
             &wit_parser::Type::Id(self.output_type_id), // Use output_type for state
-            &wave_type,
+            func_param_type,
             &memory,
         )?;
 
-        // Step 2: Convert wasm_wave::Value to wasmtime::Val
-        wave_to_val(&wave_value, func_param_type)
+        Ok(val)
     }
 
     /// Call the `reduce` function to fold a value into the state.
