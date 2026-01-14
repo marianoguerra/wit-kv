@@ -38,6 +38,15 @@ pub enum AppError {
 
     #[error("Wasm execution error: {0}")]
     Wasm(#[from] WasmError),
+
+    #[error("Either --value or --file must be specified")]
+    MissingValueInput,
+
+    #[error("Key '{key}' not found in keyspace '{keyspace}'")]
+    KeyNotFound { keyspace: String, key: String },
+
+    #[error("Keyspace '{0}' not found")]
+    KeyspaceNotFound(String),
 }
 
 #[derive(Parser)]
@@ -310,10 +319,67 @@ enum Commands {
     },
 }
 
-fn main() -> Result<(), AppError> {
-    use std::io::Write;
+/// Format an error for user-friendly display
+fn format_error(err: &AppError) -> String {
+    use std::io::IsTerminal;
 
+    let use_colors = std::io::stderr().is_terminal();
+
+    let (red, yellow, reset) = if use_colors {
+        ("\x1b[0;31m", "\x1b[0;33m", "\x1b[0m")
+    } else {
+        ("", "", "")
+    };
+
+    let mut output = format!("{}Error:{} {}\n", red, reset, err);
+
+    // Add hints for common errors
+    if let Some(hint) = get_error_hint(err) {
+        output.push_str(&format!("{}Hint:{} {}\n", yellow, reset, hint));
+    }
+
+    output
+}
+
+/// Get a helpful hint for common errors
+fn get_error_hint(err: &AppError) -> Option<&'static str> {
+    match err {
+        AppError::Kv(KvError::NotInitialized(_)) => {
+            Some("Run 'wit-kv init --path <PATH>' to initialize a new store")
+        }
+        AppError::Kv(KvError::KeyspaceNotFound(_)) | AppError::KeyspaceNotFound(_) => {
+            Some("Run 'wit-kv set-type <KEYSPACE> --wit <FILE>' to register a type first")
+        }
+        AppError::KeyNotFound { .. } => {
+            Some("Use 'wit-kv list <KEYSPACE>' to see available keys")
+        }
+        AppError::TypeNotFound(_) => {
+            Some("Use --type-name to specify the exact type, or check the WIT file for available types")
+        }
+        AppError::WaveParse(_) => {
+            Some("WAVE format: records {field: value}, enums name, variants case(value)")
+        }
+        AppError::NoTypes => {
+            Some("Ensure the WIT file contains at least one type definition")
+        }
+        AppError::MissingValueInput => {
+            Some("Provide a value with --value '{...}' or from a file with --file path.wave")
+        }
+        _ => None,
+    }
+}
+
+fn main() {
     let cli = Cli::parse();
+
+    if let Err(err) = run(cli) {
+        eprint!("{}", format_error(&err));
+        std::process::exit(1);
+    }
+}
+
+fn run(cli: Cli) -> Result<(), AppError> {
+    use std::io::Write;
 
     match cli.command {
         Commands::Lower {
@@ -437,8 +503,7 @@ fn main() -> Result<(), AppError> {
                     }
                 }
                 None => {
-                    eprintln!("Keyspace '{}' not found", keyspace);
-                    std::process::exit(1);
+                    return Err(AppError::KeyspaceNotFound(keyspace));
                 }
             }
             Ok(())
@@ -484,8 +549,7 @@ fn main() -> Result<(), AppError> {
                 (Some(v), None) => v,
                 (None, Some(f)) => std::fs::read_to_string(f)?,
                 (None, None) => {
-                    eprintln!("Either --value or --file must be specified");
-                    std::process::exit(1);
+                    return Err(AppError::MissingValueInput);
                 }
                 // Clap group ensures mutual exclusivity, but handle gracefully
                 (Some(v), Some(_)) => v,
@@ -511,8 +575,10 @@ fn main() -> Result<(), AppError> {
                         std::io::stdout().write_all(&memory)?;
                     }
                     None => {
-                        eprintln!("Key '{}' not found in keyspace '{}'", key, keyspace);
-                        std::process::exit(1);
+                        return Err(AppError::KeyNotFound {
+                            keyspace,
+                            key,
+                        });
                     }
                 }
             } else {
@@ -521,8 +587,10 @@ fn main() -> Result<(), AppError> {
                         println!("{}", wave_str);
                     }
                     None => {
-                        eprintln!("Key '{}' not found in keyspace '{}'", key, keyspace);
-                        std::process::exit(1);
+                        return Err(AppError::KeyNotFound {
+                            keyspace,
+                            key,
+                        });
                     }
                 }
             }

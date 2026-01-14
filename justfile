@@ -39,6 +39,10 @@ clippy:
 usage-example: build
     ./scripts/usage-example.sh release
 
+# Run the error conditions test script
+test-errors: build
+    ./scripts/test-errors.sh release
+
 # Run all smoke tests (usage example + map/reduce examples + unit tests)
 smoke-test: build build-examples
     #!/usr/bin/env bash
