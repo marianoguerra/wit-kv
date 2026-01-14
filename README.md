@@ -72,6 +72,7 @@ wit-kv delete-type users       # Remove type (add --delete-data to remove values
 ```bash
 # Store values using WAVE syntax
 wit-kv set users alice --value '{name: "Alice", email: "alice@example.com", active: true}'
+echo '{name: "Bob", email: "bob@example.com", active: false}' > bob.wave
 wit-kv set users bob --file bob.wave    # Or read from file
 
 # Retrieve values
@@ -106,6 +107,16 @@ Execute WebAssembly Components to filter, transform, and aggregate stored values
 Components receive actual WIT types with direct field access:
 
 ```bash
+# Setup: create keyspaces and add sample data
+wit-kv set-type points --wit ./examples/point-filter/wit/map.wit -t point
+wit-kv set points p1 --value '{x: 3, y: 4}'
+wit-kv set points p2 --value '{x: 10, y: 20}'
+
+wit-kv set-type users --wit ./examples/sum-scores/wit/reduce.wit -t person
+wit-kv set users alice --value '{age: 30, score: 100}'
+wit-kv set users bob --value '{age: 25, score: 150}'
+wit-kv set users carol --value '{age: 35, score: 55}'
+
 # Map: filter and transform points (same type in/out)
 wit-kv map points \
   --module ./examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
