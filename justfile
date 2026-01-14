@@ -9,7 +9,7 @@ build:
     cargo build --release
 
 # Build all example wasm components
-build-examples: build-identity-map build-high-score-filter build-sum-scores build-typed-point-filter build-typed-person-filter
+build-examples: build-identity-map build-high-score-filter build-sum-scores build-typed-point-filter build-typed-person-filter build-typed-sum-scores
 
 # Build identity-map component (pure wasm, no WASI)
 build-identity-map:
@@ -36,6 +36,10 @@ build-typed-point-filter:
 # Build typed-person-filter component (uses cargo-component)
 build-typed-person-filter:
     cd examples/typed-person-filter && cargo component build --release
+
+# Build typed-sum-scores component (uses cargo-component)
+build-typed-sum-scores:
+    cd examples/typed-sum-scores && cargo component build --release
 
 # Run all tests
 test:
@@ -209,6 +213,23 @@ smoke-test: build build-examples
     fi
     echo ""
 
+    echo ">>> Testing typed reduce with typed-sum-scores..."
+    OUTPUT=$(./target/release/wit-kv reduce users \
+        --module ./examples/typed-sum-scores/target/wasm32-wasip1/release/typed_sum_scores.wasm \
+        --module-wit ./examples/typed-sum-scores/wit/typed-reduce.wit \
+        --input-type person \
+        --state-type total \
+        --path /tmp/smoke-test-kv 2>&1)
+    echo "$OUTPUT"
+    # Should sum all scores: 100 + 85 + 120 = 305, count = 3
+    if echo "$OUTPUT" | grep -q "sum: 305" && echo "$OUTPUT" | grep -q "count: 3"; then
+        echo "PASSED: typed-sum-scores returned {sum: 305, count: 3}"
+    else
+        echo "FAILED: typed-sum-scores should return {sum: 305, count: 3}"
+        exit 1
+    fi
+    echo ""
+
     echo "========================================"
     echo "  ALL SMOKE TESTS PASSED"
     echo "========================================"
@@ -221,3 +242,4 @@ clean:
     rm -rf examples/sum-scores/target
     rm -rf examples/typed-point-filter/target
     rm -rf examples/typed-person-filter/target
+    rm -rf examples/typed-sum-scores/target

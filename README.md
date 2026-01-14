@@ -103,16 +103,17 @@ Both commands accept `--type-name <name>` (or `-t`) to select a specific type fr
 
 ### Map/Reduce Commands
 
-wit-kv supports executing WebAssembly Components to filter and transform values in a keyspace.
+wit-kv supports executing WebAssembly Components to filter, transform, and aggregate values in a keyspace.
 
 | Command | Description |
 |---------|-------------|
 | `map <keyspace> --module <wasm> --module-wit <wit> --input-type <type>` | **Typed** map: components receive actual WIT types |
+| `reduce <keyspace> --module <wasm> --module-wit <wit> --input-type <type> --state-type <type>` | **Typed** reduce: fold with typed state |
 | `map-low <keyspace> --module <wasm>` | **Low-level** map: components receive `binary-export` blobs |
-| `reduce-low <keyspace> --module <wasm>` | Fold values using a stateful reducer component |
+| `reduce-low <keyspace> --module <wasm>` | **Low-level** reduce: fold with `binary-export` state |
 
 **Typed vs Low-level:**
-- **Typed (`map`)**: Components use actual WIT types like `filter(value: point) -> bool`. Clean, type-safe, direct field access.
+- **Typed (`map`, `reduce`)**: Components use actual WIT types like `filter(value: point) -> bool` or `reduce(state: total, value: person) -> total`. Clean, type-safe, direct field access.
 - **Low-level (`map-low`, `reduce-low`)**: Components receive opaque `binary-export` bytes. More flexible, but requires manual parsing.
 
 See [examples/](examples/) for sample components.
@@ -181,10 +182,18 @@ wit-kv map points \
   --module-wit ./examples/typed-point-filter/wit/typed-map.wit \
   --input-type point
 
+# Typed reduce: sum all scores with typed state
+wit-kv reduce users \
+  --module ./examples/typed-sum-scores/target/wasm32-wasip1/release/typed_sum_scores.wasm \
+  --module-wit ./examples/typed-sum-scores/wit/typed-reduce.wit \
+  --input-type person \
+  --state-type total
+# Output: {sum: 305, count: 3}
+
 # Low-level map: filter users with score >= 100
 wit-kv map-low users --module ./examples/high-score-filter/target/high_score_filter.component.wasm
 
-# Reduce: sum all scores
+# Low-level reduce: sum all scores
 wit-kv reduce-low users \
   --module ./examples/sum-scores/target/sum_scores.component.wasm \
   --state-wit ./examples/sum-scores/state.wit \
@@ -320,6 +329,7 @@ wit-kv/
 ├── examples/
 │   ├── typed-point-filter/   # Typed map example (filter by radius)
 │   ├── typed-person-filter/  # Typed map example (filter by score)
+│   ├── typed-sum-scores/     # Typed reduce example (sum aggregation)
 │   ├── identity-map/         # Low-level map (pass-through)
 │   ├── high-score-filter/    # Low-level map (filter by score)
 │   └── sum-scores/           # Low-level reduce (sum aggregation)

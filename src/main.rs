@@ -362,6 +362,48 @@ enum Commands {
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
+
+    /// Reduce values using a typed WebAssembly Component (actual WIT types, not binary-export)
+    Reduce {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Path to the WebAssembly Component module (.wasm)
+        #[arg(long)]
+        module: PathBuf,
+
+        /// WIT file defining the component's types
+        #[arg(long)]
+        module_wit: PathBuf,
+
+        /// Name of the input/value type in module_wit
+        #[arg(long)]
+        input_type: String,
+
+        /// Name of the state type in module_wit
+        #[arg(long)]
+        state_type: String,
+
+        /// Filter keys by prefix
+        #[arg(long)]
+        prefix: Option<String>,
+
+        /// Start key for range (inclusive)
+        #[arg(long)]
+        start: Option<String>,
+
+        /// End key for range (exclusive)
+        #[arg(long)]
+        end: Option<String>,
+
+        /// Maximum number of values to process
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Store path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+    },
 }
 
 fn main() -> Result<(), AppError> {
@@ -895,6 +937,111 @@ fn main() -> Result<(), AppError> {
             eprintln!(
                 "Processed {} keys: {} transformed, {} filtered out, {} errors",
                 processed, transformed, filtered, errors.len()
+            );
+            for (k, err) in &errors {
+                eprintln!("  Error for '{}': {}", k, err);
+            }
+            Ok(())
+        }
+        Commands::Reduce {
+            keyspace,
+            module,
+            module_wit,
+            input_type,
+            state_type,
+            prefix,
+            start,
+            end,
+            limit,
+            path,
+        } => {
+            let store = KvStore::open(&path)?;
+
+            // Create typed runner with input_type for values and state_type for state
+            let mut runner = TypedRunner::new(
+                &module,
+                &module_wit,
+                &input_type,
+                Some(&state_type),
+            )?;
+
+            // Get keyspace metadata for type version
+            let metadata = store
+                .get_type(&keyspace)?
+                .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
+
+            // Get keys to process
+            let keys: Vec<String> = store.list(&keyspace, prefix.as_deref(), None)?;
+
+            // Apply range filter if specified
+            let keys: Vec<_> = keys
+                .into_iter()
+                .filter(|k| {
+                    let after_start = start.as_ref().is_none_or(|s| k >= s);
+                    let before_end = end.as_ref().is_none_or(|e| k < e);
+                    after_start && before_end
+                })
+                .collect();
+
+            // Apply limit
+            let keys: Vec<_> = match limit {
+                Some(l) => keys.into_iter().take(l).collect(),
+                None => keys,
+            };
+
+            // Initialize state
+            let mut state = runner.call_init_state(metadata.type_version)?;
+            let mut processed = 0;
+            let mut errors: Vec<(String, String)> = Vec::new();
+
+            for k in keys {
+                match store.get_raw(&keyspace, &k)? {
+                    Some(stored) => {
+                        match runner.call_reduce(&state, &stored, metadata.type_version) {
+                            Ok(new_state) => {
+                                state = new_state;
+                                processed += 1;
+                            }
+                            Err(e) => {
+                                errors.push((k.clone(), format!("reduce: {}", e)));
+                            }
+                        }
+                    }
+                    None => {
+                        errors.push((k.clone(), "not found".to_string()));
+                    }
+                }
+            }
+
+            // Output final state as WAVE
+            let wave_type = runner.output_wave_type()?;
+            let (output_resolve, output_type_id) = load_wit_type(&module_wit, Some(&state_type))?;
+            let output_abi = CanonicalAbi::new(&output_resolve);
+            let memory = state
+                .memory
+                .as_ref()
+                .map(|m| LinearMemory::from_bytes(m.clone()))
+                .unwrap_or_default();
+
+            match output_abi.lift_with_memory(
+                &state.value,
+                &Type::Id(output_type_id),
+                &wave_type,
+                &memory,
+            ) {
+                Ok((value, _)) => {
+                    let wave_str = wasm_wave::to_string(&value)
+                        .map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                    println!("{}", wave_str);
+                }
+                Err(e) => {
+                    eprintln!("<decode error: {}>", e);
+                }
+            }
+
+            eprintln!(
+                "Reduced {} values, {} errors",
+                processed, errors.len()
             );
             for (k, err) in &errors {
                 eprintln!("  Error for '{}': {}", k, err);

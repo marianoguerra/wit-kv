@@ -1,0 +1,32 @@
+/// Typed Reduce interface for summing person scores
+///
+/// This is the TYPED equivalent of sum-scores.
+/// Compare:
+/// - sum-scores: manually parses bytes to extract score, state is raw u64 bytes
+/// - typed-sum-scores: receives actual person record, state is typed total record
+package wit-kv:typed-sum-scores@0.1.0;
+
+interface types {
+    /// A person record with age and score
+    record person {
+        age: u8,
+        score: u32,
+    }
+
+    /// Accumulator state for summing scores
+    record total {
+        sum: u64,
+        count: u32,
+    }
+}
+
+/// Typed reduce module for summing person scores.
+world typed-reduce-module {
+    use types.{person, total};
+
+    /// Initialize the accumulator state to zero.
+    export init-state: func() -> total;
+
+    /// Add the person's score to the running total.
+    export reduce: func(state: total, value: person) -> total;
+}

@@ -636,4 +636,121 @@ impl TypedRunner {
     pub fn engine(&self) -> &Engine {
         &self.engine
     }
+
+    /// Call the `init-state` function to get the initial reduce state.
+    ///
+    /// The init-state function should have signature: `init-state() -> StateType`
+    pub fn call_init_state(&mut self, type_version: u32) -> Result<StoredValue, WasmError> {
+        let func = self.get_func("init-state")?;
+
+        // Get function type
+        let func_type = func.ty(&self.store);
+        let result_type = func_type.results().next().ok_or_else(|| {
+            WasmError::InvalidReturnType {
+                expected: "init-state function should have 1 result".to_string(),
+            }
+        })?;
+
+        // Create result placeholder
+        let mut results = vec![create_placeholder_val(&result_type)?];
+
+        // Call function (no parameters)
+        func.call(&mut self.store, &[], &mut results)
+            .map_err(|e| WasmError::Trap(e.to_string()))?;
+
+        // Convert result to StoredValue using output_type (which is the state type)
+        let result_val = results.first().ok_or_else(|| WasmError::InvalidReturnType {
+            expected: "init-state function should return a value".to_string(),
+        })?;
+        let output = self.val_to_stored(result_val, type_version)?;
+
+        func.post_return(&mut self.store)
+            .map_err(|e| WasmError::Trap(format!("post_return failed: {}", e)))?;
+
+        Ok(output)
+    }
+
+    /// Convert a state StoredValue to a typed Val for reduce calls.
+    ///
+    /// This uses the output_type_id (state type) for conversion.
+    pub fn state_to_val(
+        &self,
+        stored: &StoredValue,
+        func_param_type: &types::Type,
+    ) -> Result<Val, WasmError> {
+        // Step 1: Lift binary to wasm_wave::Value using CanonicalAbi
+        let wave_type = self.output_wave_type()?; // State type is output_type
+        let memory = stored
+            .memory
+            .as_ref()
+            .map(|m| LinearMemory::from_bytes(m.clone()))
+            .unwrap_or_default();
+
+        let abi = CanonicalAbi::new(&self.resolve);
+        let (wave_value, _) = abi.lift_with_memory(
+            &stored.value,
+            &wit_parser::Type::Id(self.output_type_id), // Use output_type for state
+            &wave_type,
+            &memory,
+        )?;
+
+        // Step 2: Convert wasm_wave::Value to wasmtime::Val
+        wave_to_val(&wave_value, func_param_type)
+    }
+
+    /// Call the `reduce` function to fold a value into the state.
+    ///
+    /// The reduce function should have signature: `reduce(state: StateType, value: T) -> StateType`
+    pub fn call_reduce(
+        &mut self,
+        state: &StoredValue,
+        value: &StoredValue,
+        type_version: u32,
+    ) -> Result<StoredValue, WasmError> {
+        let func = self.get_func("reduce")?;
+
+        // Get function type
+        let func_type = func.ty(&self.store);
+        let mut params = func_type.params();
+
+        let (_, state_param_type) = params.next().ok_or_else(|| {
+            WasmError::InvalidReturnType {
+                expected: "reduce function should have 2 parameters (state, value)".to_string(),
+            }
+        })?;
+
+        let (_, value_param_type) = params.next().ok_or_else(|| {
+            WasmError::InvalidReturnType {
+                expected: "reduce function should have 2 parameters (state, value)".to_string(),
+            }
+        })?;
+
+        let result_type = func_type.results().next().ok_or_else(|| {
+            WasmError::InvalidReturnType {
+                expected: "reduce function should have 1 result".to_string(),
+            }
+        })?;
+
+        // Convert state and value to wasmtime Vals
+        let state_val = self.state_to_val(state, &state_param_type)?;
+        let value_val = self.stored_to_val(value, &value_param_type)?;
+
+        // Create result placeholder
+        let mut results = vec![create_placeholder_val(&result_type)?];
+
+        // Call function
+        func.call(&mut self.store, &[state_val, value_val], &mut results)
+            .map_err(|e| WasmError::Trap(e.to_string()))?;
+
+        // Convert result to StoredValue
+        let result_val = results.first().ok_or_else(|| WasmError::InvalidReturnType {
+            expected: "reduce function should return a value".to_string(),
+        })?;
+        let output = self.val_to_stored(result_val, type_version)?;
+
+        func.post_return(&mut self.store)
+            .map_err(|e| WasmError::Trap(format!("post_return failed: {}", e)))?;
+
+        Ok(output)
+    }
 }
