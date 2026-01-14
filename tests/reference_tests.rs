@@ -4,7 +4,7 @@
 
 use wit_parser::Resolve;
 
-use wit_value::{CanonicalAbi, LinearMemory};
+use wit_kv::{CanonicalAbi, LinearMemory};
 
 /// Test that our encoding of a point record matches the canonical ABI
 #[test]
@@ -37,10 +37,10 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("point type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
 
     // Lower a value using our implementation
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, "{x: 42, y: 100}")?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, "{x: 42, y: 100}")?;
     let abi = CanonicalAbi::new(&resolve);
     let our_bytes = abi.lower(&value, &wit_parser::Type::Id(type_id), &wave_type)?;
 
@@ -91,14 +91,14 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("color type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Test each enum case
     let test_cases = [("red", 0u8), ("green", 1u8), ("blue", 2u8)];
 
     for (name, expected_discriminant) in test_cases {
-        let value: wit_value::Value = wasm_wave::from_str(&wave_type, name)?;
+        let value: wit_kv::Value = wasm_wave::from_str(&wave_type, name)?;
         let bytes = abi.lower(&value, &wit_parser::Type::Id(type_id), &wave_type)?;
 
         assert_eq!(bytes, vec![expected_discriminant], "Enum {} encoding mismatch", name);
@@ -142,7 +142,7 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("permissions type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Test various flag combinations
@@ -158,7 +158,7 @@ world test-world {
     ];
 
     for (wave_str, expected_bits) in test_cases {
-        let value: wit_value::Value = wasm_wave::from_str(&wave_type, wave_str)?;
+        let value: wit_kv::Value = wasm_wave::from_str(&wave_type, wave_str)?;
         let bytes = abi.lower(&value, &wit_parser::Type::Id(type_id), &wave_type)?;
 
         assert_eq!(bytes, vec![expected_bits], "Flags {} encoding mismatch", wave_str);
@@ -193,18 +193,18 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("maybe-u32 type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Test none
-    let none_value: wit_value::Value = wasm_wave::from_str(&wave_type, "none")?;
+    let none_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "none")?;
     let none_bytes = abi.lower(&none_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     // none: discriminant=0, payload padding to 4 bytes
     assert_eq!(none_bytes.len(), 8, "option<u32> should be 8 bytes");
     assert_eq!(none_bytes[0], 0, "none discriminant should be 0");
 
     // Test some(42)
-    let some_value: wit_value::Value = wasm_wave::from_str(&wave_type, "some(42)")?;
+    let some_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "some(42)")?;
     let some_bytes = abi.lower(&some_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     assert_eq!(some_bytes.len(), 8, "option<u32> should be 8 bytes");
     assert_eq!(some_bytes[0], 1, "some discriminant should be 1");
@@ -247,17 +247,17 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("result-u32 type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Test ok(123)
-    let ok_value: wit_value::Value = wasm_wave::from_str(&wave_type, "ok(123)")?;
+    let ok_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "ok(123)")?;
     let ok_bytes = abi.lower(&ok_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     assert_eq!(ok_bytes[0], 0, "ok discriminant should be 0");
     assert_eq!(&ok_bytes[4..8], &[123, 0, 0, 0], "ok payload should be 123");
 
     // Test err(42)
-    let err_value: wit_value::Value = wasm_wave::from_str(&wave_type, "err(42)")?;
+    let err_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "err(42)")?;
     let err_bytes = abi.lower(&err_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     assert_eq!(err_bytes[0], 1, "err discriminant should be 1");
     assert_eq!(err_bytes[4], 42, "err payload should be 42");
@@ -307,21 +307,21 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("shape type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Test circle(10) - discriminant 0
-    let circle_value: wit_value::Value = wasm_wave::from_str(&wave_type, "circle(10)")?;
+    let circle_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "circle(10)")?;
     let circle_bytes = abi.lower(&circle_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     assert_eq!(circle_bytes[0], 0, "circle discriminant should be 0");
 
     // Test rectangle({x: 5, y: 10}) - discriminant 1
-    let rect_value: wit_value::Value = wasm_wave::from_str(&wave_type, "rectangle({x: 5, y: 10})")?;
+    let rect_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "rectangle({x: 5, y: 10})")?;
     let rect_bytes = abi.lower(&rect_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     assert_eq!(rect_bytes[0], 1, "rectangle discriminant should be 1");
 
     // Test %none - discriminant 2
-    let none_value: wit_value::Value = wasm_wave::from_str(&wave_type, "%none")?;
+    let none_value: wit_kv::Value = wasm_wave::from_str(&wave_type, "%none")?;
     let none_bytes = abi.lower(&none_value, &wit_parser::Type::Id(type_id), &wave_type)?;
     assert_eq!(none_bytes[0], 2, "none discriminant should be 2");
 
@@ -376,10 +376,10 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("my-u32 type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, u32_type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, u32_type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, "3735928559")?; // 0xDEADBEEF
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, "3735928559")?; // 0xDEADBEEF
     let bytes = abi.lower(&value, &wit_parser::Type::Id(u32_type_id), &wave_type)?;
 
     // 0xDEADBEEF in little-endian
@@ -418,12 +418,12 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("pair type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // tuple<u8, u32> should have alignment padding
     // u8 at offset 0, then 3 bytes padding, then u32 at offset 4
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, "(255, 42)")?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, "(255, 42)")?;
     let bytes = abi.lower(&value, &wit_parser::Type::Id(type_id), &wave_type)?;
 
     assert_eq!(bytes.len(), 8, "tuple<u8, u32> should be 8 bytes with padding");
@@ -472,10 +472,10 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("outer type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, "{x: 1, inner: {a: 2, b: 3}, y: 4}")?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, "{x: 1, inner: {a: 2, b: 3}, y: 4}")?;
     let bytes = abi.lower(&value, &wit_parser::Type::Id(type_id), &wave_type)?;
 
     // Verify roundtrip
@@ -513,11 +513,11 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("message type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Lower a string value using linear memory
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, r#"{text: "hello"}"#)?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, r#"{text: "hello"}"#)?;
     let mut memory = LinearMemory::new();
     let bytes = abi.lower_with_memory(&value, &wit_parser::Type::Id(type_id), &wave_type, &mut memory)?;
 
@@ -569,11 +569,11 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("numbers type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Lower a list value using linear memory
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, "{values: [1, 2, 3, 4, 5]}")?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, "{values: [1, 2, 3, 4, 5]}")?;
     let mut memory = LinearMemory::new();
     let bytes = abi.lower_with_memory(&value, &wit_parser::Type::Id(type_id), &wave_type, &mut memory)?;
 
@@ -632,11 +632,11 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("message type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Lower an empty string
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, r#"{text: ""}"#)?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, r#"{text: ""}"#)?;
     let mut memory = LinearMemory::new();
     let bytes = abi.lower_with_memory(&value, &wit_parser::Type::Id(type_id), &wave_type, &mut memory)?;
 
@@ -679,11 +679,11 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("numbers type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Lower an empty list
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, "{values: []}")?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, "{values: []}")?;
     let mut memory = LinearMemory::new();
     let bytes = abi.lower_with_memory(&value, &wit_parser::Type::Id(type_id), &wave_type, &mut memory)?;
 
@@ -726,11 +726,11 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("words type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Lower a list of strings
-    let value: wit_value::Value = wasm_wave::from_str(&wave_type, r#"{items: ["hello", "world"]}"#)?;
+    let value: wit_kv::Value = wasm_wave::from_str(&wave_type, r#"{items: ["hello", "world"]}"#)?;
     let mut memory = LinearMemory::new();
     let bytes = abi.lower_with_memory(&value, &wit_parser::Type::Id(type_id), &wave_type, &mut memory)?;
 
@@ -778,11 +778,11 @@ world test-world {
         .map(|(id, _)| id)
         .ok_or_else(|| anyhow::anyhow!("person type not found"))?;
 
-    let wave_type = wit_value::resolve_wit_type(&resolve, type_id)?;
+    let wave_type = wit_kv::resolve_wit_type(&resolve, type_id)?;
     let abi = CanonicalAbi::new(&resolve);
 
     // Lower a record with multiple strings
-    let value: wit_value::Value = wasm_wave::from_str(
+    let value: wit_kv::Value = wasm_wave::from_str(
         &wave_type,
         r#"{first-name: "John", last-name: "Doe", age: 30}"#,
     )?;

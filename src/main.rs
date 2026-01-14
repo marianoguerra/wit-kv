@@ -84,7 +84,7 @@ enum Commands {
 
     /// Initialize a new key-value store
     Init {
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -106,7 +106,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -120,7 +120,7 @@ enum Commands {
         #[arg(long)]
         binary: bool,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -134,14 +134,14 @@ enum Commands {
         #[arg(long)]
         delete_data: bool,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
 
     /// List all registered types
     ListTypes {
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -162,7 +162,7 @@ enum Commands {
         #[arg(long, group = "input")]
         file: Option<PathBuf>,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -183,7 +183,7 @@ enum Commands {
         #[arg(long)]
         raw: bool,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -196,7 +196,7 @@ enum Commands {
         /// Key for the value
         key: String,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },
@@ -214,7 +214,7 @@ enum Commands {
         #[arg(long)]
         limit: Option<usize>,
 
-        /// Database path
+        /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
         path: PathBuf,
     },

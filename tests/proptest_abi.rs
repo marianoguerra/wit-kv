@@ -4,7 +4,7 @@
 
 use proptest::prelude::*;
 use wit_parser::Resolve;
-use wit_value::{CanonicalAbi, LinearMemory, resolve_wit_type, Value};
+use wit_kv::{CanonicalAbi, LinearMemory, resolve_wit_type, Value};
 
 /// Helper to create a resolve with a specific type
 fn create_resolve_with_type(wit: &str) -> Result<(Resolve, wit_parser::TypeId), anyhow::Error> {

@@ -7,7 +7,7 @@ use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
 use wit_parser::{ManglingAndAbi, Resolve};
 
-use wit_value::{resolve_wit_type, CanonicalAbi, Value};
+use wit_kv::{resolve_wit_type, CanonicalAbi, Value};
 
 /// Helper to create a component from WIT that stores received values in memory.
 /// The component exports:

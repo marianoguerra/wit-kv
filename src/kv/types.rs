@@ -4,10 +4,13 @@
 /// This structure mirrors the `stored-value` WIT type in kv.wit.
 #[derive(Debug, Clone)]
 pub struct StoredValue {
-    /// Format version for future compatibility
+    /// Format version for future compatibility.
+    /// Used for migration if the envelope structure changes.
+    /// Current version: 1
     pub version: u8,
 
-    /// Type version at time of storage (for schema migration detection)
+    /// Type version at time of storage (for schema migration detection).
+    /// Matches the keyspace's type_version when the value was written.
     pub type_version: u32,
 
     /// Canonical ABI encoded value bytes
@@ -18,7 +21,8 @@ pub struct StoredValue {
 }
 
 impl StoredValue {
-    /// Current format version
+    /// Current format version (1).
+    /// Increment this when changing the StoredValue structure itself.
     pub const CURRENT_VERSION: u8 = 1;
 
     /// Create a new StoredValue with the current format version.
@@ -48,13 +52,15 @@ pub struct KeyspaceMetadata {
     /// Type name within the WIT definition
     pub type_name: String,
 
-    /// Incremented on type definition changes
+    /// Type schema version, incremented on type definition changes.
+    /// Starts at 1 for new keyspaces. Used to detect when stored values
+    /// were written with an older schema version.
     pub type_version: u32,
 
-    /// CRC32 hash of WIT definition
+    /// CRC32 hash of WIT definition (for quick change detection)
     pub type_hash: u32,
 
-    /// Unix timestamp of creation
+    /// Unix timestamp of keyspace creation
     pub created_at: u64,
 }
 

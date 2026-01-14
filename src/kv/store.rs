@@ -19,7 +19,9 @@ const META_CONFIG_KEY: &str = "config";
 /// Data keyspace prefix.
 const DATA_PREFIX: &str = "data_";
 
-/// Current store version.
+/// Current store version (1).
+/// Increment this when changing the on-disk layout or metadata format.
+/// The store will reject opening databases with a different version.
 const STORE_VERSION: u32 = 1;
 
 /// Key-value store backed by fjall.
@@ -74,15 +76,15 @@ impl KvStore {
     /// Register a type for a keyspace.
     pub fn set_type(
         &self,
-        name: &str,
+        keyspace: &str,
         wit_path: &Path,
         type_name: Option<&str>,
         force: bool,
     ) -> Result<KeyspaceMetadata, KvError> {
         // Check if keyspace already exists
-        let key = format!("{}{}", META_TYPES_PREFIX, name);
+        let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
         if !force && self.meta.get(&key)?.is_some() {
-            return Err(KvError::KeyspaceExists(name.to_string()));
+            return Err(KvError::KeyspaceExists(keyspace.to_string()));
         }
 
         // Parse the WIT file
@@ -113,7 +115,7 @@ impl KvStore {
 
         // Create metadata
         let metadata = KeyspaceMetadata::new(
-            name.to_string(),
+            keyspace.to_string(),
             qualified_name.clone(),
             wit_definition,
             actual_type_name,
@@ -125,11 +127,11 @@ impl KvStore {
 
         // Store reverse lookup
         let qualified_key = format!("{}{}", META_QUALIFIED_PREFIX, qualified_name);
-        self.meta.insert(&qualified_key, name.as_bytes())?;
+        self.meta.insert(&qualified_key, keyspace.as_bytes())?;
 
         // Create data keyspace for this keyspace
-        let keyspace_name = format!("{}{}", DATA_PREFIX, name);
-        let _ = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
+        let data_keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
+        let _ = self.db.keyspace(&data_keyspace_name, KeyspaceCreateOptions::default)?;
 
         self.db.persist(PersistMode::SyncAll)?;
 
@@ -137,14 +139,14 @@ impl KvStore {
     }
 
     /// Get the type metadata for a keyspace.
-    pub fn get_type(&self, name: &str) -> Result<Option<KeyspaceMetadata>, KvError> {
-        let key = format!("{}{}", META_TYPES_PREFIX, name);
+    pub fn get_type(&self, keyspace: &str) -> Result<Option<KeyspaceMetadata>, KvError> {
+        let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
         self.load_metadata(&key)
     }
 
     /// Delete a keyspace type (and optionally its data).
-    pub fn delete_type(&self, name: &str, delete_data: bool) -> Result<(), KvError> {
-        let key = format!("{}{}", META_TYPES_PREFIX, name);
+    pub fn delete_type(&self, keyspace: &str, delete_data: bool) -> Result<(), KvError> {
+        let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
 
         // Get metadata to find qualified name
         if let Some(metadata) = self.load_metadata(&key)? {
@@ -160,15 +162,15 @@ impl KvStore {
 
         // Delete data keyspace if requested
         if delete_data {
-            let keyspace_name = format!("{}{}", DATA_PREFIX, name);
-            if let Ok(keyspace) = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default) {
+            let data_keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
+            if let Ok(data_keyspace) = self.db.keyspace(&data_keyspace_name, KeyspaceCreateOptions::default) {
                 // Clear all keys - skip any keys that fail to read
-                let keys: Vec<Vec<u8>> = keyspace
+                let keys: Vec<Vec<u8>> = data_keyspace
                     .iter()
                     .filter_map(|kv| kv.key().ok().map(|k| k.to_vec()))
                     .collect();
                 for k in keys {
-                    keyspace.remove(&k)?;
+                    data_keyspace.remove(&k)?;
                 }
             }
         }
