@@ -32,6 +32,7 @@ use wit_parser::{Resolve, TypeId};
 
 use super::error::WasmError;
 use crate::abi::{CanonicalAbi, LinearMemory};
+use crate::find_type_by_name;
 use crate::kv::{SemanticVersion, StoredValue};
 
 /// Convert a wasm_wave::Value to a wasmtime::component::Val based on the target type.
@@ -428,25 +429,19 @@ impl TypedRunner {
         resolve.push_path(wit_path)?;
 
         // Find input type
-        let input_type_id = resolve
-            .types
-            .iter()
-            .find(|(_, ty)| ty.name.as_deref() == Some(input_type_name))
-            .map(|(id, _)| id)
-            .ok_or_else(|| WasmError::TypeMismatch {
+        let input_type_id = find_type_by_name(&resolve, input_type_name).ok_or_else(|| {
+            WasmError::TypeMismatch {
                 keyspace_type: format!("input type '{}' not found in WIT", input_type_name),
-            })?;
+            }
+        })?;
 
         // Find output type (defaults to input type)
         let output_type_name = output_type_name.unwrap_or(input_type_name);
-        let output_type_id = resolve
-            .types
-            .iter()
-            .find(|(_, ty)| ty.name.as_deref() == Some(output_type_name))
-            .map(|(id, _)| id)
-            .ok_or_else(|| WasmError::TypeMismatch {
+        let output_type_id = find_type_by_name(&resolve, output_type_name).ok_or_else(|| {
+            WasmError::TypeMismatch {
                 keyspace_type: format!("output type '{}' not found in WIT", output_type_name),
-            })?;
+            }
+        })?;
 
         // Create wasmtime engine
         let mut config = Config::new();
@@ -497,11 +492,7 @@ impl TypedRunner {
         stored: &StoredValue,
         func_param_type: &types::Type,
     ) -> Result<Val, WasmError> {
-        let memory = stored
-            .memory
-            .as_ref()
-            .map(|m| LinearMemory::from_bytes(m.clone()))
-            .unwrap_or_default();
+        let memory = LinearMemory::from_optional(stored.memory.as_ref());
 
         let abi = CanonicalAbi::new(&self.resolve);
         let (val, _) = abi.lift_to_val(
@@ -672,11 +663,7 @@ impl TypedRunner {
         stored: &StoredValue,
         func_param_type: &types::Type,
     ) -> Result<Val, WasmError> {
-        let memory = stored
-            .memory
-            .as_ref()
-            .map(|m| LinearMemory::from_bytes(m.clone()))
-            .unwrap_or_default();
+        let memory = LinearMemory::from_optional(stored.memory.as_ref());
 
         let abi = CanonicalAbi::new(&self.resolve);
         let (val, _) = abi.lift_to_val(

@@ -6,7 +6,9 @@ use wit_parser::{Resolve, Type, TypeId};
 
 use wit_kv::kv::{BinaryExport, KvError, KvStore};
 use wit_kv::wasm::{TypedRunner, WasmError};
-use wit_kv::{CanonicalAbi, CanonicalAbiError, LinearMemory};
+use wit_kv::{
+    find_first_named_type, find_type_by_name, CanonicalAbi, CanonicalAbiError, LinearMemory,
+};
 
 #[derive(Error, Debug)]
 pub enum AppError {
@@ -375,10 +377,7 @@ fn main() -> Result<(), AppError> {
             // Lift the value from the exported buffer and memory
             let abi = CanonicalAbi::new(&resolve);
             let ty = Type::Id(type_id);
-            let memory = export
-                .memory
-                .map(LinearMemory::from_bytes)
-                .unwrap_or_default();
+            let memory = LinearMemory::from_option(export.memory);
             let (value, _bytes_read) =
                 abi.lift_with_memory(&export.buffer, &ty, &wave_type, &memory)?;
 
@@ -505,7 +504,7 @@ fn main() -> Result<(), AppError> {
                 match store.get_raw(&keyspace, &key)? {
                     Some(stored) => {
                         // Export using binary-export WIT type (buffer + memory)
-                        let export = BinaryExport::from_stored(&stored);
+                        let export = BinaryExport::from_stored_owned(stored);
                         let (buffer, memory) = export.encode()?;
                         std::io::stdout().write_all(&buffer)?;
                         std::io::stdout().write_all(&memory)?;
@@ -541,7 +540,7 @@ fn main() -> Result<(), AppError> {
             path,
         } => {
             let store = KvStore::open(&path)?;
-            let keys = store.list(&keyspace, prefix.as_deref(), limit)?;
+            let keys = store.list(&keyspace, prefix.as_deref(), None, None, limit)?;
             if keys.is_empty() {
                 println!("No keys found");
             } else {
@@ -583,18 +582,14 @@ fn main() -> Result<(), AppError> {
             let keys: Vec<String> = if let Some(k) = key {
                 vec![k]
             } else {
-                store.list(&keyspace, prefix.as_deref(), limit)?
+                store.list(
+                    &keyspace,
+                    prefix.as_deref(),
+                    start.as_deref(),
+                    end.as_deref(),
+                    limit,
+                )?
             };
-
-            // Apply range filter if specified
-            let keys: Vec<_> = keys
-                .into_iter()
-                .filter(|k| {
-                    let after_start = start.as_ref().is_none_or(|s| k >= s);
-                    let before_end = end.as_ref().is_none_or(|e| k < e);
-                    after_start && before_end
-                })
-                .collect();
 
             let mut processed = 0;
             let mut filtered = 0;
@@ -619,11 +614,7 @@ fn main() -> Result<(), AppError> {
                                 match runner.call_transform(&stored, metadata.type_version) {
                                     Ok(result) => {
                                         // Output the transformed value
-                                        let memory = result
-                                            .memory
-                                            .as_ref()
-                                            .map(|m| LinearMemory::from_bytes(m.clone()))
-                                            .unwrap_or_default();
+                                        let memory = LinearMemory::from_optional(result.memory.as_ref());
 
                                         match output_abi.lift_with_memory(
                                             &result.value,
@@ -699,23 +690,13 @@ fn main() -> Result<(), AppError> {
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
             // Get keys to process
-            let keys: Vec<String> = store.list(&keyspace, prefix.as_deref(), None)?;
-
-            // Apply range filter if specified
-            let keys: Vec<_> = keys
-                .into_iter()
-                .filter(|k| {
-                    let after_start = start.as_ref().is_none_or(|s| k >= s);
-                    let before_end = end.as_ref().is_none_or(|e| k < e);
-                    after_start && before_end
-                })
-                .collect();
-
-            // Apply limit
-            let keys: Vec<_> = match limit {
-                Some(l) => keys.into_iter().take(l).collect(),
-                None => keys,
-            };
+            let keys: Vec<String> = store.list(
+                &keyspace,
+                prefix.as_deref(),
+                start.as_deref(),
+                end.as_deref(),
+                limit,
+            )?;
 
             // Initialize state
             let mut state = runner.call_init_state(metadata.type_version)?;
@@ -745,11 +726,7 @@ fn main() -> Result<(), AppError> {
             let wave_type = runner.output_wave_type()?;
             let (output_resolve, output_type_id) = load_wit_type(&module_wit, Some(&state_type))?;
             let output_abi = CanonicalAbi::new(&output_resolve);
-            let memory = state
-                .memory
-                .as_ref()
-                .map(|m| LinearMemory::from_bytes(m.clone()))
-                .unwrap_or_default();
+            let memory = LinearMemory::from_optional(state.memory.as_ref());
 
             match output_abi.lift_with_memory(
                 &state.value,
@@ -783,24 +760,12 @@ fn load_wit_type(wit_path: &PathBuf, type_name: Option<&str>) -> Result<(Resolve
     let mut resolve = Resolve::new();
     resolve.push_path(wit_path)?;
 
-    match type_name {
+    let type_id = match type_name {
         Some(name) => {
-            // Find the type by name
-            for (id, ty) in resolve.types.iter() {
-                if ty.name.as_deref() == Some(name) {
-                    return Ok((resolve, id));
-                }
-            }
-            Err(AppError::TypeNotFound(name.to_string()))
+            find_type_by_name(&resolve, name).ok_or_else(|| AppError::TypeNotFound(name.to_string()))
         }
-        None => {
-            // Use the first named type
-            for (id, ty) in resolve.types.iter() {
-                if ty.name.is_some() {
-                    return Ok((resolve, id));
-                }
-            }
-            Err(AppError::NoTypes)
-        }
-    }
+        None => find_first_named_type(&resolve).ok_or(AppError::NoTypes),
+    }?;
+
+    Ok((resolve, type_id))
 }

@@ -1,0 +1,36 @@
+/// Typed Map interface demonstrating T -> T1 type transformation.
+///
+/// This example transforms Point records into Magnitude records,
+/// showing how map operations can produce a different output type.
+package wit-kv:point-to-magnitude@0.1.0;
+
+interface types {
+    /// A 2D point with integer coordinates (input type)
+    record point {
+        x: s32,
+        y: s32,
+    }
+
+    /// Magnitude information derived from a point (output type)
+    record magnitude {
+        /// Distance squared from origin (x² + y²)
+        distance-squared: u64,
+        /// Quadrant number (1-4)
+        quadrant: u8,
+    }
+}
+
+/// Typed map module for point-to-magnitude transformation.
+///
+/// Demonstrates T -> T1 mapping where input and output types differ.
+world typed-map-module {
+    use types.{point, magnitude};
+
+    /// Filter determines if a point should be processed.
+    /// Returns true if the point should be passed to transform.
+    export filter: func(value: point) -> bool;
+
+    /// Transform a point into magnitude information.
+    /// Only called for points where filter returned true.
+    export transform: func(value: point) -> magnitude;
+}

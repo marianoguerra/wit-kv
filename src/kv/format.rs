@@ -10,7 +10,7 @@ use wasm_wave::value::{resolve_wit_type, Type as WaveType, Value};
 use wasm_wave::wasm::{WasmType, WasmValue};
 use wit_parser::{Resolve, Type, TypeId};
 
-use crate::{CanonicalAbi, LinearMemory};
+use crate::{find_type_by_name, CanonicalAbi, LinearMemory};
 
 use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};
@@ -41,28 +41,14 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
     let kv_wit = include_str!("../../kv.wit");
     resolve.push_str("kv.wit", kv_wit)?;
 
-    // Find the stored-value type
-    let stored_value_id = resolve
-        .types
-        .iter()
-        .find(|(_, ty)| ty.name.as_deref() == Some("stored-value"))
-        .map(|(id, _)| id)
+    // Find the types
+    let stored_value_id = find_type_by_name(&resolve, "stored-value")
         .ok_or_else(|| KvError::TypeNotFound("stored-value".to_string()))?;
 
-    // Find the keyspace-metadata type
-    let keyspace_metadata_id = resolve
-        .types
-        .iter()
-        .find(|(_, ty)| ty.name.as_deref() == Some("keyspace-metadata"))
-        .map(|(id, _)| id)
+    let keyspace_metadata_id = find_type_by_name(&resolve, "keyspace-metadata")
         .ok_or_else(|| KvError::TypeNotFound("keyspace-metadata".to_string()))?;
 
-    // Find the binary-export type
-    let binary_export_id = resolve
-        .types
-        .iter()
-        .find(|(_, ty)| ty.name.as_deref() == Some("binary-export"))
-        .map(|(id, _)| id)
+    let binary_export_id = find_type_by_name(&resolve, "binary-export")
         .ok_or_else(|| KvError::TypeNotFound("binary-export".to_string()))?;
 
     let stored_value_wave_type = resolve_wit_type(&resolve, stored_value_id)
@@ -93,6 +79,18 @@ fn get_field_type(wave_type: &WaveType, field_name: &str) -> Option<WaveType> {
         .map(|(_, ty)| ty)
 }
 
+/// Type alias for record fields extracted from a Value
+type RecordFields<'a> = Vec<(Cow<'a, str>, Cow<'a, Value>)>;
+
+/// Helper to get a field value from extracted record fields
+fn get_field<'a>(fields: &'a RecordFields<'_>, name: &str) -> Result<&'a Value, KvError> {
+    fields
+        .iter()
+        .find(|(n, _)| n.as_ref() == name)
+        .map(|(_, v)| v.as_ref())
+        .ok_or_else(|| KvError::InvalidFormat(format!("Missing {} field", name)))
+}
+
 /// Helper to create a semantic-version WAVE value
 fn make_semantic_version(version: &SemanticVersion, parent_type: &WaveType) -> Result<Value, KvError> {
     let version_type = get_field_type(parent_type, "type-version")
@@ -111,25 +109,11 @@ fn make_semantic_version(version: &SemanticVersion, parent_type: &WaveType) -> R
 
 /// Helper to extract a SemanticVersion from a WAVE record value
 fn extract_semantic_version(value: &Value) -> Result<SemanticVersion, KvError> {
-    let fields: Vec<_> = value.unwrap_record().collect();
+    let fields: RecordFields<'_> = value.unwrap_record().collect();
 
-    let major = fields
-        .iter()
-        .find(|(name, _)| name.as_ref() == "major")
-        .map(|(_, v)| v.unwrap_u32())
-        .ok_or_else(|| KvError::InvalidFormat("Missing major field".to_string()))?;
-
-    let minor = fields
-        .iter()
-        .find(|(name, _)| name.as_ref() == "minor")
-        .map(|(_, v)| v.unwrap_u32())
-        .ok_or_else(|| KvError::InvalidFormat("Missing minor field".to_string()))?;
-
-    let patch = fields
-        .iter()
-        .find(|(name, _)| name.as_ref() == "patch")
-        .map(|(_, v)| v.unwrap_u32())
-        .ok_or_else(|| KvError::InvalidFormat("Missing patch field".to_string()))?;
+    let major = get_field(&fields, "major")?.unwrap_u32();
+    let minor = get_field(&fields, "minor")?.unwrap_u32();
+    let patch = get_field(&fields, "patch")?.unwrap_u32();
 
     Ok(SemanticVersion::new(major, minor, patch))
 }
@@ -158,12 +142,7 @@ impl StoredValue {
     pub fn decode(buffer: &[u8], memory: &[u8]) -> Result<Self, KvError> {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
-
-        let mem = if memory.is_empty() {
-            LinearMemory::new()
-        } else {
-            LinearMemory::from_bytes(memory.to_vec())
-        };
+        let mem = LinearMemory::from_slice(memory);
 
         let (value, _) = abi.lift_with_memory(
             buffer,
@@ -186,30 +165,28 @@ impl StoredValue {
         // Build the semantic-version record
         let type_version_val = make_semantic_version(&self.type_version, wave_type)?;
 
-        // Build the list<u8> for value field
-        let value_list: Vec<Value> = self.value.iter().map(|&b| Value::make_u8(b)).collect();
-        let value_val = Value::make_list(&value_field_type, value_list)
-            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+        // Build the list<u8> for value field (pass iterator directly to avoid intermediate Vec)
+        let value_val =
+            Value::make_list(&value_field_type, self.value.iter().map(|&b| Value::make_u8(b)))
+                .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Build the option<list<u8>> for memory field
         let memory_val = match &self.memory {
             Some(mem) => {
                 // Get the inner list type from option<list<u8>>
-                let inner_list_type = memory_field_type
-                    .option_some_type()
-                    .ok_or_else(|| KvError::InvalidFormat("Expected option type for memory".to_string()))?;
+                let inner_list_type = memory_field_type.option_some_type().ok_or_else(|| {
+                    KvError::InvalidFormat("Expected option type for memory".to_string())
+                })?;
 
-                let mem_list: Vec<Value> = mem.iter().map(|&b| Value::make_u8(b)).collect();
-                let mem_list_val = Value::make_list(&inner_list_type, mem_list)
-                    .map_err(|e| KvError::WaveParse(e.to_string()))?;
+                let mem_list_val =
+                    Value::make_list(&inner_list_type, mem.iter().map(|&b| Value::make_u8(b)))
+                        .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
                 Value::make_option(&memory_field_type, Some(mem_list_val))
                     .map_err(|e| KvError::WaveParse(e.to_string()))?
             }
-            None => {
-                Value::make_option(&memory_field_type, None)
-                    .map_err(|e| KvError::WaveParse(e.to_string()))?
-            }
+            None => Value::make_option(&memory_field_type, None)
+                .map_err(|e| KvError::WaveParse(e.to_string()))?,
         };
 
         // Build the record
@@ -226,35 +203,17 @@ impl StoredValue {
     }
 
     fn from_wave_value(value: &Value) -> Result<Self, KvError> {
-        let fields: Vec<_> = value.unwrap_record().collect();
+        let fields: RecordFields<'_> = value.unwrap_record().collect();
 
-        let version = fields
-            .iter()
-            .find(|(name, _)| name.as_ref() == "version")
-            .map(|(_, v)| v.unwrap_u8())
-            .ok_or_else(|| KvError::InvalidFormat("Missing version field".to_string()))?;
-
-        let type_version_val = fields
-            .iter()
-            .find(|(name, _)| name.as_ref() == "type-version")
-            .map(|(_, v)| v)
-            .ok_or_else(|| KvError::InvalidFormat("Missing type-version field".to_string()))?;
-        let type_version = extract_semantic_version(type_version_val)?;
-
-        let value_bytes: Vec<u8> = fields
-            .iter()
-            .find(|(name, _)| name.as_ref() == "value")
-            .map(|(_, v)| v.unwrap_list().map(|e| e.unwrap_u8()).collect())
-            .ok_or_else(|| KvError::InvalidFormat("Missing value field".to_string()))?;
-
-        let memory = fields
-            .iter()
-            .find(|(name, _)| name.as_ref() == "memory")
-            .and_then(|(_, v)| {
-                v.unwrap_option().map(|inner| {
-                    inner.unwrap_list().map(|e| e.unwrap_u8()).collect()
-                })
-            });
+        let version = get_field(&fields, "version")?.unwrap_u8();
+        let type_version = extract_semantic_version(get_field(&fields, "type-version")?)?;
+        let value_bytes: Vec<u8> = get_field(&fields, "value")?
+            .unwrap_list()
+            .map(|e| e.unwrap_u8())
+            .collect();
+        let memory = get_field(&fields, "memory")?
+            .unwrap_option()
+            .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect());
 
         Ok(StoredValue {
             version,
@@ -288,12 +247,7 @@ impl KeyspaceMetadata {
     pub fn decode(buffer: &[u8], memory: &[u8]) -> Result<Self, KvError> {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
-
-        let mem = if memory.is_empty() {
-            LinearMemory::new()
-        } else {
-            LinearMemory::from_bytes(memory.to_vec())
-        };
+        let mem = LinearMemory::from_slice(memory);
 
         let (value, _) = abi.lift_with_memory(
             buffer,
@@ -334,50 +288,15 @@ impl KeyspaceMetadata {
     }
 
     fn from_wave_value(value: &Value) -> Result<Self, KvError> {
-        let fields: Vec<_> = value.unwrap_record().collect();
+        let fields: RecordFields<'_> = value.unwrap_record().collect();
 
-        let name = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "name")
-            .map(|(_, v)| v.unwrap_string().to_string())
-            .ok_or_else(|| KvError::InvalidFormat("Missing name field".to_string()))?;
-
-        let qualified_name = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "qualified-name")
-            .map(|(_, v)| v.unwrap_string().to_string())
-            .ok_or_else(|| KvError::InvalidFormat("Missing qualified-name field".to_string()))?;
-
-        let wit_definition = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "wit-definition")
-            .map(|(_, v)| v.unwrap_string().to_string())
-            .ok_or_else(|| KvError::InvalidFormat("Missing wit-definition field".to_string()))?;
-
-        let type_name = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "type-name")
-            .map(|(_, v)| v.unwrap_string().to_string())
-            .ok_or_else(|| KvError::InvalidFormat("Missing type-name field".to_string()))?;
-
-        let type_version_val = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "type-version")
-            .map(|(_, v)| v)
-            .ok_or_else(|| KvError::InvalidFormat("Missing type-version field".to_string()))?;
-        let type_version = extract_semantic_version(type_version_val)?;
-
-        let type_hash = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "type-hash")
-            .map(|(_, v)| v.unwrap_u32())
-            .ok_or_else(|| KvError::InvalidFormat("Missing type-hash field".to_string()))?;
-
-        let created_at = fields
-            .iter()
-            .find(|(n, _)| n.as_ref() == "created-at")
-            .map(|(_, v)| v.unwrap_u64())
-            .ok_or_else(|| KvError::InvalidFormat("Missing created-at field".to_string()))?;
+        let name = get_field(&fields, "name")?.unwrap_string().to_string();
+        let qualified_name = get_field(&fields, "qualified-name")?.unwrap_string().to_string();
+        let wit_definition = get_field(&fields, "wit-definition")?.unwrap_string().to_string();
+        let type_name = get_field(&fields, "type-name")?.unwrap_string().to_string();
+        let type_version = extract_semantic_version(get_field(&fields, "type-version")?)?;
+        let type_hash = get_field(&fields, "type-hash")?.unwrap_u32();
+        let created_at = get_field(&fields, "created-at")?.unwrap_u64();
 
         Ok(KeyspaceMetadata {
             name,
@@ -409,11 +328,19 @@ impl BinaryExport {
     /// Total: 20 bytes
     pub const FLAT_SIZE: usize = 20;
 
-    /// Create a BinaryExport from a StoredValue.
+    /// Create a BinaryExport from a StoredValue reference (clones data).
     pub fn from_stored(stored: &StoredValue) -> Self {
         BinaryExport {
             buffer: stored.value.clone(),
             memory: stored.memory.clone(),
+        }
+    }
+
+    /// Create a BinaryExport by consuming a StoredValue (no clone).
+    pub fn from_stored_owned(stored: StoredValue) -> Self {
+        BinaryExport {
+            buffer: stored.value,
+            memory: stored.memory,
         }
     }
 
@@ -453,12 +380,7 @@ impl BinaryExport {
     pub fn decode(buffer: &[u8], memory: &[u8]) -> Result<Self, KvError> {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
-
-        let mem = if memory.is_empty() {
-            LinearMemory::new()
-        } else {
-            LinearMemory::from_bytes(memory.to_vec())
-        };
+        let mem = LinearMemory::from_slice(memory);
 
         let (value, _) = abi.lift_with_memory(
             buffer,
@@ -477,10 +399,10 @@ impl BinaryExport {
         let memory_field_type = get_field_type(wave_type, "memory")
             .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
 
-        // Build the list<u8> for buffer field
-        let buffer_list: Vec<Value> = self.buffer.iter().map(|&b| Value::make_u8(b)).collect();
-        let buffer_val = Value::make_list(&buffer_field_type, buffer_list)
-            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+        // Build the list<u8> for buffer field (pass iterator directly to avoid intermediate Vec)
+        let buffer_val =
+            Value::make_list(&buffer_field_type, self.buffer.iter().map(|&b| Value::make_u8(b)))
+                .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Build the option<list<u8>> for memory field
         let memory_val = match &self.memory {
@@ -489,9 +411,9 @@ impl BinaryExport {
                     .option_some_type()
                     .ok_or_else(|| KvError::InvalidFormat("Expected option type for memory".to_string()))?;
 
-                let mem_list: Vec<Value> = mem.iter().map(|&b| Value::make_u8(b)).collect();
-                let mem_list_val = Value::make_list(&inner_list_type, mem_list)
-                    .map_err(|e| KvError::WaveParse(e.to_string()))?;
+                let mem_list_val =
+                    Value::make_list(&inner_list_type, mem.iter().map(|&b| Value::make_u8(b)))
+                        .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
                 Value::make_option(&memory_field_type, Some(mem_list_val))
                     .map_err(|e| KvError::WaveParse(e.to_string()))?
@@ -507,21 +429,15 @@ impl BinaryExport {
     }
 
     fn from_wave_value(value: &Value) -> Result<Self, KvError> {
-        let fields: Vec<_> = value.unwrap_record().collect();
+        let fields: RecordFields<'_> = value.unwrap_record().collect();
 
-        let buffer: Vec<u8> = fields
-            .iter()
-            .find(|(name, _)| name.as_ref() == "value")
-            .map(|(_, v)| v.unwrap_list().map(|e| e.unwrap_u8()).collect())
-            .ok_or_else(|| KvError::InvalidFormat("Missing value field".to_string()))?;
-
-        let memory = fields
-            .iter()
-            .find(|(name, _)| name.as_ref() == "memory")
-            .and_then(|(_, v)| {
-                v.unwrap_option()
-                    .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect())
-            });
+        let buffer: Vec<u8> = get_field(&fields, "value")?
+            .unwrap_list()
+            .map(|e| e.unwrap_u8())
+            .collect();
+        let memory = get_field(&fields, "memory")?
+            .unwrap_option()
+            .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect());
 
         Ok(BinaryExport { buffer, memory })
     }

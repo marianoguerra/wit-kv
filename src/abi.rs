@@ -109,6 +109,32 @@ impl LinearMemory {
         Self { data }
     }
 
+    /// Create a linear memory from an optional reference to bytes (clones if Some).
+    /// Returns an empty LinearMemory if None.
+    pub fn from_optional(data: Option<&Vec<u8>>) -> Self {
+        match data {
+            Some(d) => Self { data: d.clone() },
+            None => Self::new(),
+        }
+    }
+
+    /// Create a linear memory from an optional owned bytes (no clone).
+    /// Returns an empty LinearMemory if None.
+    pub fn from_option(data: Option<Vec<u8>>) -> Self {
+        match data {
+            Some(d) => Self { data: d },
+            None => Self::new(),
+        }
+    }
+
+    /// Create a linear memory from a slice (clones the data).
+    /// Useful for decoding when the source is a borrowed slice.
+    pub fn from_slice(data: &[u8]) -> Self {
+        Self {
+            data: data.to_vec(),
+        }
+    }
+
     /// Allocate space in linear memory and return the pointer (offset).
     /// Aligns the allocation to the specified alignment.
     pub fn alloc(&mut self, size: usize, align: usize) -> u32 {
@@ -356,7 +382,7 @@ impl<'a> CanonicalAbi<'a> {
                         }
                     })?;
                     self.lower_into(
-                        &field_val.clone(),
+                        field_val.as_ref(),
                         &field_def.ty,
                         wave_field_ty,
                         buffer,
@@ -395,7 +421,7 @@ impl<'a> CanonicalAbi<'a> {
                         }
                     })?;
                     self.lower_into(
-                        &elem.clone(),
+                        elem.as_ref(),
                         wit_ty,
                         wave_elem_ty,
                         buffer,
@@ -641,7 +667,7 @@ impl<'a> CanonicalAbi<'a> {
                         break;
                     };
                     self.lower_into(
-                        &elem.clone(),
+                        elem.as_ref(),
                         elem_ty,
                         &wave_elem_ty,
                         buffer,
@@ -2155,7 +2181,12 @@ impl<'a> CanonicalAbi<'a> {
                     let payload_offset = self
                         .sizes
                         .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
-                    let case = &v.cases[case_idx];
+                    let case = v.cases.get(case_idx).ok_or(
+                        CanonicalAbiError::InvalidDiscriminant {
+                            discriminant: case_idx as u32,
+                            num_cases: v.cases.len(),
+                        },
+                    )?;
                     if let Some(payload_ty) = &case.ty {
                         self.lower_val_into(
                             payload_val,

@@ -6,7 +6,7 @@ use fjall::{Keyspace, KeyspaceCreateOptions, PersistMode};
 use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
-use crate::{CanonicalAbi, LinearMemory};
+use crate::{find_first_named_type, find_type_by_name, CanonicalAbi, LinearMemory};
 
 use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};
@@ -92,19 +92,21 @@ impl KvStore {
         resolve.push_path(wit_path)?;
 
         // Find the type
-        let (type_id, type_def) = match type_name {
-            Some(tn) => resolve
-                .types
-                .iter()
-                .find(|(_, ty)| ty.name.as_deref() == Some(tn))
-                .ok_or_else(|| KvError::TypeNotFound(tn.to_string()))?,
-            None => resolve
-                .types
-                .iter()
-                .find(|(_, ty)| ty.name.is_some())
-                .ok_or_else(|| KvError::TypeNotFound("No named type found".to_string()))?,
+        let type_id = match type_name {
+            Some(tn) => {
+                find_type_by_name(&resolve, tn)
+                    .ok_or_else(|| KvError::TypeNotFound(tn.to_string()))?
+            }
+            None => {
+                find_first_named_type(&resolve)
+                    .ok_or_else(|| KvError::TypeNotFound("No named type found".to_string()))?
+            }
         };
 
+        let type_def = resolve
+            .types
+            .get(type_id)
+            .ok_or_else(|| KvError::TypeNotFound(format!("Type {:?} not found", type_id)))?;
         let actual_type_name = type_def.name.clone().unwrap_or_default();
 
         // Build qualified name from package info
@@ -270,10 +272,7 @@ impl KvStore {
 
         // Lift from canonical ABI
         let abi = CanonicalAbi::new(&resolve);
-        let memory = stored
-            .memory
-            .map(LinearMemory::from_bytes)
-            .unwrap_or_else(LinearMemory::new);
+        let memory = LinearMemory::from_option(stored.memory);
 
         let (value, _) =
             abi.lift_with_memory(&stored.value, &Type::Id(type_id), &wave_type, &memory)?;
@@ -313,11 +312,18 @@ impl KvStore {
         Ok(())
     }
 
-    /// List keys in a keyspace.
+    /// List keys in a keyspace with optional filtering.
+    ///
+    /// - `prefix`: Only return keys starting with this prefix
+    /// - `start`: Only return keys >= start (inclusive)
+    /// - `end`: Only return keys < end (exclusive)
+    /// - `limit`: Maximum number of keys to return
     pub fn list(
         &self,
         keyspace: &str,
         prefix: Option<&str>,
+        start: Option<&str>,
+        end: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, KvError> {
         let _ = self
@@ -328,9 +334,16 @@ impl KvStore {
         let ks = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
 
         let mut keys = Vec::new();
-        let iter = match prefix {
-            Some(p) => ks.prefix(p),
-            None => ks.prefix(""),
+
+        // Use range or prefix based on what's provided
+        let iter: Box<dyn Iterator<Item = _>> = match (start, end) {
+            (Some(s), Some(e)) => Box::new(ks.range(s..e)),
+            (Some(s), None) => Box::new(ks.range(s..)),
+            (None, Some(e)) => Box::new(ks.range(..e)),
+            (None, None) => match prefix {
+                Some(p) => Box::new(ks.prefix(p)),
+                None => Box::new(ks.prefix("")),
+            },
         };
 
         for kv in iter {
@@ -341,6 +354,13 @@ impl KvStore {
 
             // Skip memory keys
             if key_str.ends_with(".memory") {
+                continue;
+            }
+
+            // Apply prefix filter if we're using range (range doesn't filter by prefix)
+            if let Some(p) = prefix
+                && !key_str.starts_with(p)
+            {
                 continue;
             }
 
@@ -411,11 +431,7 @@ impl KvStore {
         let mut resolve = Resolve::new();
         resolve.push_str("stored.wit", &metadata.wit_definition)?;
 
-        let type_id = resolve
-            .types
-            .iter()
-            .find(|(_, ty)| ty.name.as_deref() == Some(&metadata.type_name))
-            .map(|(id, _)| id)
+        let type_id = find_type_by_name(&resolve, &metadata.type_name)
             .ok_or_else(|| KvError::TypeNotFound(metadata.type_name.clone()))?;
 
         let wave_type =

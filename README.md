@@ -334,10 +334,8 @@ wit-kv/
 │   │   ├── types.rs      # StoredValue, KeyspaceMetadata
 │   │   └── format.rs     # WIT-based binary encoding
 │   └── wasm/             # WebAssembly execution module
-│       ├── runner.rs     # Low-level WasmRunner
 │       ├── typed_runner.rs # TypedRunner (actual WIT types)
-│       ├── map.rs        # MapOperation
-│       └── reduce.rs     # ReduceOperation
+│       └── error.rs      # WasmError types
 ├── examples/
 │   ├── point-filter/   # Typed map (filter by radius)
 │   ├── person-filter/  # Typed map (filter by score)
