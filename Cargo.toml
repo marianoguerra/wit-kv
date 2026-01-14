@@ -12,3 +12,5 @@ wasm-wave = { version = "0.244", features = ["wit"] }
 
 [dev-dependencies]
 proptest = "1"
+wasmtime = { version = "40.0.1", features = ["component-model"] }
+wit-component = { version = "0.244.0", features = ["dummy-module"] }
