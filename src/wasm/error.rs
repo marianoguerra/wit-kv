@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use crate::abi::CanonicalAbiError;
+
 /// Errors that can occur during WebAssembly module execution.
 #[derive(Error, Debug)]
 pub enum WasmError {
@@ -44,4 +46,8 @@ pub enum WasmError {
     /// Component encoding error.
     #[error("Component encoding error: {0}")]
     ComponentEncoding(String),
+
+    /// Canonical ABI error.
+    #[error("Canonical ABI error: {0}")]
+    CanonicalAbi(#[from] CanonicalAbiError),
 }

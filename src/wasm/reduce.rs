@@ -46,10 +46,10 @@ impl<'a> ReduceOperation<'a> {
 
         for key in keys {
             // Check limit
-            if let Some(l) = limit {
-                if processed_count >= l {
-                    break;
-                }
+            if let Some(l) = limit
+                && processed_count >= l
+            {
+                break;
             }
 
             // Get raw value

@@ -9,7 +9,7 @@ build:
     cargo build --release
 
 # Build all example wasm components
-build-examples: build-identity-map build-high-score-filter build-sum-scores
+build-examples: build-identity-map build-high-score-filter build-sum-scores build-typed-point-filter build-typed-person-filter
 
 # Build identity-map component (pure wasm, no WASI)
 build-identity-map:
@@ -28,6 +28,14 @@ build-sum-scores:
     cd examples/sum-scores && cargo build --release --target wasm32-unknown-unknown
     wasm-tools component new examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
         -o examples/sum-scores/target/sum_scores.component.wasm
+
+# Build typed-point-filter component (uses cargo-component)
+build-typed-point-filter:
+    cd examples/typed-point-filter && cargo component build --release
+
+# Build typed-person-filter component (uses cargo-component)
+build-typed-person-filter:
+    cd examples/typed-person-filter && cargo component build --release
 
 # Run all tests
 test:
@@ -156,6 +164,51 @@ smoke-test: build build-examples
     fi
     echo ""
 
+    echo ">>> Setting up typed map test environment..."
+    # Set up points keyspace for typed-point-filter
+    ./target/release/wit-kv set-type points \
+        --wit examples/typed-point-filter/wit/typed-map.wit \
+        --type-name point \
+        --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set points p1 --value "{x: 10, y: 20}" --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set points p2 --value "{x: 50, y: 50}" --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set points p3 --value "{x: 150, y: 0}" --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set points p4 --value "{x: 3, y: 4}" --path /tmp/smoke-test-kv
+    echo ""
+
+    echo ">>> Testing typed map with typed-point-filter..."
+    OUTPUT=$(./target/release/wit-kv map points \
+        --module ./examples/typed-point-filter/target/wasm32-wasip1/release/typed_point_filter.wasm \
+        --module-wit ./examples/typed-point-filter/wit/typed-map.wit \
+        --input-type point \
+        --path /tmp/smoke-test-kv 2>&1)
+    echo "$OUTPUT"
+    # Should filter out p3 (150,0 is outside radius 100) and transform others (double coords)
+    if echo "$OUTPUT" | grep -q "3 transformed" && echo "$OUTPUT" | grep -q "1 filtered"; then
+        echo "PASSED: typed-point-filter returned 3 transformed, 1 filtered"
+    else
+        echo "FAILED: typed-point-filter should return 3 transformed, 1 filtered"
+        exit 1
+    fi
+    echo ""
+
+    echo ">>> Testing typed map with typed-person-filter..."
+    # Reuse the users keyspace (already has person type compatible data)
+    OUTPUT=$(./target/release/wit-kv map users \
+        --module ./examples/typed-person-filter/target/wasm32-wasip1/release/typed_person_filter.wasm \
+        --module-wit ./examples/typed-person-filter/wit/typed-map.wit \
+        --input-type person \
+        --path /tmp/smoke-test-kv 2>&1)
+    echo "$OUTPUT"
+    # alice (score 100) and charlie (score 120) pass filter, bob (85) filtered out
+    if echo "$OUTPUT" | grep -q "2 transformed" && echo "$OUTPUT" | grep -q "1 filtered"; then
+        echo "PASSED: typed-person-filter returned 2 transformed, 1 filtered"
+    else
+        echo "FAILED: typed-person-filter should return 2 transformed, 1 filtered"
+        exit 1
+    fi
+    echo ""
+
     echo "========================================"
     echo "  ALL SMOKE TESTS PASSED"
     echo "========================================"
@@ -166,3 +219,5 @@ clean:
     rm -rf examples/identity-map/target
     rm -rf examples/high-score-filter/target
     rm -rf examples/sum-scores/target
+    rm -rf examples/typed-point-filter/target
+    rm -rf examples/typed-person-filter/target

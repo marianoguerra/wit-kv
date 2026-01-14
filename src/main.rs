@@ -5,7 +5,7 @@ use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
 use wit_kv::kv::{BinaryExport, KvError, KvStore};
-use wit_kv::wasm::{KeyFilter, MapOperation, ReduceOperation, WasmError};
+use wit_kv::wasm::{KeyFilter, MapOperation, ReduceOperation, TypedRunner, WasmError};
 use wit_kv::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 
 #[derive(Error, Debug)]
@@ -311,6 +311,52 @@ enum Commands {
         /// Output file for the result (stdout if not specified)
         #[arg(long)]
         output: Option<PathBuf>,
+
+        /// Store path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+    },
+
+    /// Map values using a typed WebAssembly Component (actual WIT types, not binary-export)
+    Map {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Path to the WebAssembly Component module (.wasm)
+        #[arg(long)]
+        module: PathBuf,
+
+        /// WIT file defining the component's types
+        #[arg(long)]
+        module_wit: PathBuf,
+
+        /// Name of the input type in module_wit
+        #[arg(long)]
+        input_type: String,
+
+        /// Name of the output type (defaults to input type)
+        #[arg(long)]
+        output_type: Option<String>,
+
+        /// Process only this specific key
+        #[arg(long, group = "key_selection")]
+        key: Option<String>,
+
+        /// Filter keys by prefix
+        #[arg(long, group = "key_selection")]
+        prefix: Option<String>,
+
+        /// Start key for range (inclusive)
+        #[arg(long)]
+        start: Option<String>,
+
+        /// End key for range (exclusive)
+        #[arg(long)]
+        end: Option<String>,
+
+        /// Maximum number of values to process
+        #[arg(long)]
+        limit: Option<usize>,
 
         /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
@@ -732,6 +778,126 @@ fn main() -> Result<(), AppError> {
                     }
                     eprintln!("Reduced {} values ({} bytes)", result.processed_count, buffer.len() + memory.len());
                 }
+            }
+            Ok(())
+        }
+        Commands::Map {
+            keyspace,
+            module,
+            module_wit,
+            input_type,
+            output_type,
+            key,
+            prefix,
+            start,
+            end,
+            limit,
+            path,
+        } => {
+            let store = KvStore::open(&path)?;
+
+            // Create typed runner
+            let mut runner = TypedRunner::new(
+                &module,
+                &module_wit,
+                &input_type,
+                output_type.as_deref(),
+            )?;
+
+            // Get keyspace metadata for lifting values
+            let metadata = store
+                .get_type(&keyspace)?
+                .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
+
+            // Get keys to process
+            let keys: Vec<String> = if let Some(k) = key {
+                vec![k]
+            } else {
+                store.list(&keyspace, prefix.as_deref(), limit)?
+            };
+
+            // Apply range filter if specified
+            let keys: Vec<_> = keys
+                .into_iter()
+                .filter(|k| {
+                    let after_start = start.as_ref().is_none_or(|s| k >= s);
+                    let before_end = end.as_ref().is_none_or(|e| k < e);
+                    after_start && before_end
+                })
+                .collect();
+
+            let mut processed = 0;
+            let mut filtered = 0;
+            let mut transformed = 0;
+            let mut errors: Vec<(String, String)> = Vec::new();
+
+            // Get wave type for output
+            let wave_type = runner.output_wave_type()?;
+
+            // Load resolve and type_id once for output decoding
+            let output_type_name = output_type.as_deref().unwrap_or(&input_type);
+            let (output_resolve, output_type_id) = load_wit_type(&module_wit, Some(output_type_name))?;
+            let output_abi = CanonicalAbi::new(&output_resolve);
+
+            for k in keys {
+                match store.get_raw(&keyspace, &k)? {
+                    Some(stored) => {
+                        // Call filter
+                        match runner.call_filter(&stored) {
+                            Ok(true) => {
+                                // Call transform
+                                match runner.call_transform(&stored, metadata.type_version) {
+                                    Ok(result) => {
+                                        // Output the transformed value
+                                        let memory = result
+                                            .memory
+                                            .as_ref()
+                                            .map(|m| LinearMemory::from_bytes(m.clone()))
+                                            .unwrap_or_default();
+
+                                        match output_abi.lift_with_memory(
+                                            &result.value,
+                                            &Type::Id(output_type_id),
+                                            &wave_type,
+                                            &memory,
+                                        ) {
+                                            Ok((value, _)) => {
+                                                let wave_str = wasm_wave::to_string(&value)
+                                                    .map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                                                println!("{}: {}", k, wave_str);
+                                            }
+                                            Err(e) => {
+                                                eprintln!("{}: <decode error: {}>", k, e);
+                                            }
+                                        }
+                                        transformed += 1;
+                                    }
+                                    Err(e) => {
+                                        errors.push((k.clone(), format!("transform: {}", e)));
+                                    }
+                                }
+                            }
+                            Ok(false) => {
+                                filtered += 1;
+                            }
+                            Err(e) => {
+                                errors.push((k.clone(), format!("filter: {}", e)));
+                            }
+                        }
+                        processed += 1;
+                    }
+                    None => {
+                        errors.push((k.clone(), "not found".to_string()));
+                    }
+                }
+            }
+
+            eprintln!(
+                "Processed {} keys: {} transformed, {} filtered out, {} errors",
+                processed, transformed, filtered, errors.len()
+            );
+            for (k, err) in &errors {
+                eprintln!("  Error for '{}': {}", k, err);
             }
             Ok(())
         }

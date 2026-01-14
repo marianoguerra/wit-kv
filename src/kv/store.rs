@@ -346,10 +346,10 @@ impl KvStore {
 
             keys.push(key_str.into_owned());
 
-            if let Some(l) = limit {
-                if keys.len() >= l {
-                    break;
-                }
+            if let Some(l) = limit
+                && keys.len() >= l
+            {
+                break;
             }
         }
 
@@ -374,27 +374,27 @@ impl KvStore {
                 let Some(iface) = resolve.interfaces.get(iface_id) else {
                     return Ok(type_name.to_string());
                 };
-                if let Some(pkg_id) = iface.package {
-                    if let Some(pkg) = resolve.packages.get(pkg_id) {
-                        let iface_name = iface.name.as_deref().unwrap_or("types");
-                        return Ok(format!(
-                            "{}:{}/{}#{}",
-                            pkg.name.namespace, pkg.name.name, iface_name, type_name
-                        ));
-                    }
+                if let Some(pkg_id) = iface.package
+                    && let Some(pkg) = resolve.packages.get(pkg_id)
+                {
+                    let iface_name = iface.name.as_deref().unwrap_or("types");
+                    return Ok(format!(
+                        "{}:{}/{}#{}",
+                        pkg.name.namespace, pkg.name.name, iface_name, type_name
+                    ));
                 }
             }
             wit_parser::TypeOwner::World(world_id) => {
                 let Some(world) = resolve.worlds.get(world_id) else {
                     return Ok(type_name.to_string());
                 };
-                if let Some(pkg_id) = world.package {
-                    if let Some(pkg) = resolve.packages.get(pkg_id) {
-                        return Ok(format!(
-                            "{}:{}#{}",
-                            pkg.name.namespace, pkg.name.name, type_name
-                        ));
-                    }
+                if let Some(pkg_id) = world.package
+                    && let Some(pkg) = resolve.packages.get(pkg_id)
+                {
+                    return Ok(format!(
+                        "{}:{}#{}",
+                        pkg.name.namespace, pkg.name.name, type_name
+                    ));
                 }
             }
             wit_parser::TypeOwner::None => {}

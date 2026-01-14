@@ -94,10 +94,10 @@ impl<'a> MapOperation<'a> {
 
         for key in keys {
             // Check limit
-            if let Some(l) = limit {
-                if count >= l {
-                    break;
-                }
+            if let Some(l) = limit
+                && count >= l
+            {
+                break;
             }
 
             // Get raw value

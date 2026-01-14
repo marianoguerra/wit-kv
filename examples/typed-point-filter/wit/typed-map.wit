@@ -1,0 +1,29 @@
+/// Typed Map interface for point types
+///
+/// Unlike the binary-export approach, this interface uses actual WIT types.
+/// The component receives and returns typed values directly.
+package wit-kv:typed-map@0.1.0;
+
+interface types {
+    /// A 2D point with integer coordinates
+    record point {
+        x: s32,
+        y: s32,
+    }
+}
+
+/// Typed map module for point operations.
+///
+/// The component receives actual `point` values, not binary blobs.
+/// This eliminates the need for manual binary parsing.
+world typed-map-module {
+    use types.{point};
+
+    /// Filter determines if a point should be processed.
+    /// Returns true if the point should be passed to transform.
+    export filter: func(value: point) -> bool;
+
+    /// Transform a point to a new point.
+    /// Only called for points where filter returned true.
+    export transform: func(value: point) -> point;
+}

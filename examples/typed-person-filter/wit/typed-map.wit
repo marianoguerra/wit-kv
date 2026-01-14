@@ -1,0 +1,26 @@
+/// Typed Map interface for person types
+///
+/// This is the TYPED equivalent of high-score-filter.
+/// Compare:
+/// - high-score-filter: manually parses bytes to extract score
+/// - typed-person-filter: receives actual person record, accesses fields directly
+package wit-kv:typed-person-map@0.1.0;
+
+interface types {
+    /// A person record with age and score
+    record person {
+        age: u8,
+        score: u32,
+    }
+}
+
+/// Typed map module for person operations.
+world typed-map-module {
+    use types.{person};
+
+    /// Filter determines if a person should be processed.
+    export filter: func(value: person) -> bool;
+
+    /// Transform a person to a new person.
+    export transform: func(value: person) -> person;
+}

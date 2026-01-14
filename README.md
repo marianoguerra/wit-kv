@@ -101,6 +101,22 @@ Both commands accept `--type-name <name>` (or `-t`) to select a specific type fr
 |----------|-------------|---------|
 | `WIT_KV_PATH` | Store directory path | `.wit-kv/` |
 
+### Map/Reduce Commands
+
+wit-kv supports executing WebAssembly Components to filter and transform values in a keyspace.
+
+| Command | Description |
+|---------|-------------|
+| `map <keyspace> --module <wasm> --module-wit <wit> --input-type <type>` | **Typed** map: components receive actual WIT types |
+| `map-low <keyspace> --module <wasm>` | **Low-level** map: components receive `binary-export` blobs |
+| `reduce-low <keyspace> --module <wasm>` | Fold values using a stateful reducer component |
+
+**Typed vs Low-level:**
+- **Typed (`map`)**: Components use actual WIT types like `filter(value: point) -> bool`. Clean, type-safe, direct field access.
+- **Low-level (`map-low`, `reduce-low`)**: Components receive opaque `binary-export` bytes. More flexible, but requires manual parsing.
+
+See [examples/](examples/) for sample components.
+
 ### Examples
 
 **Working with complex types:**
@@ -154,6 +170,25 @@ wit-kv set users charlie --file charlie.wave
 ```bash
 # Output as binary-export format (canonical ABI, can be decoded with kv.wit types)
 wit-kv get users alice --binary > alice.bin
+```
+
+**Map/reduce with WebAssembly Components:**
+
+```bash
+# Typed map: filter points within radius 100, double coordinates
+wit-kv map points \
+  --module ./examples/typed-point-filter/target/wasm32-wasip1/release/typed_point_filter.wasm \
+  --module-wit ./examples/typed-point-filter/wit/typed-map.wit \
+  --input-type point
+
+# Low-level map: filter users with score >= 100
+wit-kv map-low users --module ./examples/high-score-filter/target/high_score_filter.component.wasm
+
+# Reduce: sum all scores
+wit-kv reduce-low users \
+  --module ./examples/sum-scores/target/sum_scores.component.wasm \
+  --state-wit ./examples/sum-scores/state.wit \
+  --state-type total
 ```
 
 ---
@@ -273,11 +308,23 @@ wit-kv/
 │   ├── main.rs      # CLI entry point
 │   ├── lib.rs       # Library exports
 │   ├── abi.rs       # Canonical ABI implementation
-│   └── kv/          # Key-value store module
-│       ├── store.rs # KvStore implementation
-│       ├── types.rs # StoredValue, KeyspaceMetadata
-│       └── format.rs# WIT-based binary encoding
+│   ├── kv/          # Key-value store module
+│   │   ├── store.rs # KvStore implementation
+│   │   ├── types.rs # StoredValue, KeyspaceMetadata
+│   │   └── format.rs# WIT-based binary encoding
+│   └── wasm/        # WebAssembly execution module
+│       ├── runner.rs       # Low-level WasmRunner (binary-export)
+│       ├── typed_runner.rs # TypedRunner (actual WIT types)
+│       ├── map.rs          # MapOperation
+│       └── reduce.rs       # ReduceOperation
+├── examples/
+│   ├── typed-point-filter/   # Typed map example (filter by radius)
+│   ├── typed-person-filter/  # Typed map example (filter by score)
+│   ├── identity-map/         # Low-level map (pass-through)
+│   ├── high-score-filter/    # Low-level map (filter by score)
+│   └── sum-scores/           # Low-level reduce (sum aggregation)
 ├── kv.wit           # Storage format type definitions
+├── mapreduce.wit    # Map/reduce interface definitions
 ├── test.wit         # Test type definitions
 └── scripts/
     └── usage-example.sh  # Smoke test / tutorial
@@ -311,7 +358,10 @@ let value = store.get("users", "alice")?;
 # Unit and integration tests
 cargo test
 
-# Smoke test (exercises all CLI features)
+# Full smoke test (unit tests + usage examples + map/reduce examples)
+just smoke-test
+
+# Or run individual test scripts
 ./scripts/usage-example.sh
 ```
 
@@ -320,7 +370,7 @@ cargo test
 - **Unit tests**: Roundtrip encoding for all WIT types
 - **Property tests**: Randomized roundtrip verification
 - **Reference tests**: Wasmtime-based canonical ABI validation
-- **Smoke tests**: End-to-end CLI verification
+- **Smoke tests**: End-to-end CLI verification including typed and low-level map/reduce
 
 ## License
 
