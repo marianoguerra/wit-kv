@@ -106,11 +106,20 @@ Execute WebAssembly Components to filter, transform, and aggregate stored values
 Components receive actual WIT types with direct field access:
 
 ```bash
-# Map: filter and transform points
+# Map: filter and transform points (same type in/out)
 wit-kv map points \
   --module ./examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
   --module-wit ./examples/point-filter/wit/map.wit \
   --input-type point
+
+# Map: transform to different type (T -> T1)
+wit-kv map points \
+  --module ./examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
+  --module-wit ./examples/point-to-magnitude/wit/map.wit \
+  --input-type point \
+  --output-type magnitude
+# Input:  {x: 3, y: 4}
+# Output: {distance-squared: 25, quadrant: 1}
 
 # Reduce: aggregate with typed state
 wit-kv reduce users \
@@ -152,7 +161,7 @@ See [examples/](examples/) for sample components.
 
 | Command | Description |
 |---------|-------------|
-| `map <keyspace> --module <wasm> --module-wit <wit> --input-type <type>` | Typed map operation |
+| `map <keyspace> --module <wasm> --module-wit <wit> --input-type <type> [--output-type <type>]` | Typed map operation (output-type enables T -> T1) |
 | `reduce <keyspace> --module <wasm> --module-wit <wit> --input-type <type> --state-type <type>` | Typed reduce operation |
 
 ### Environment Variables
@@ -337,9 +346,10 @@ wit-kv/
 │       ├── typed_runner.rs # TypedRunner (actual WIT types)
 │       └── error.rs      # WasmError types
 ├── examples/
-│   ├── point-filter/   # Typed map (filter by radius)
-│   ├── person-filter/  # Typed map (filter by score)
-│   └── sum-scores/     # Typed reduce (sum aggregation)
+│   ├── point-filter/       # Typed map: Point -> Point (filter by radius)
+│   ├── person-filter/      # Typed map: Person -> Person (filter by score)
+│   ├── point-to-magnitude/ # Typed map: Point -> Magnitude (T -> T1 transformation)
+│   └── sum-scores/         # Typed reduce: Person -> Total (sum aggregation)
 ├── kv.wit                # Storage format types
 ├── mapreduce.wit         # Map/reduce interfaces
 └── test.wit              # Test type definitions
