@@ -1,7 +1,7 @@
 [package]
 name = "wit-kv"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 anyhow = "1"
@@ -12,11 +12,11 @@ wasm-wave = { version = "0.244", features = ["wit"] }
 fjall = "3.0.1"
 crc32fast = "1"
 once_cell = "1"
+wasmtime = { version = "40.0.1", features = ["component-model"] }
+wit-component = { version = "0.244.0", features = ["dummy-module"] }
 
 [dev-dependencies]
 proptest = "1"
-wasmtime = { version = "40.0.1", features = ["component-model"] }
-wit-component = { version = "0.244.0", features = ["dummy-module"] }
 
 [lints.clippy]
 # Disallow functions and macros that can panic

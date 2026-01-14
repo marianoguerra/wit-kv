@@ -1,0 +1,24 @@
+/// Map/Reduce WIT interfaces for wit-kv
+package wit-kv:mapreduce@0.1.0;
+
+interface types {
+    /// Binary export format - self-describing canonical ABI encoding.
+    record binary-export {
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+        /// Linear memory bytes (for variable-length types like strings, lists)
+        memory: option<list<u8>>,
+    }
+}
+
+/// Map module interface.
+world map-module {
+    use types.{binary-export};
+
+    /// Filter determines if a value should be processed.
+    export filter: func(value: binary-export) -> bool;
+
+    /// Transform a value from type T to type T1.
+    /// (Named 'transform' to avoid keyword conflict with 'map')
+    export transform: func(value: binary-export) -> binary-export;
+}

@@ -2,3 +2,7 @@
 /wasm-tools
 *.bin
 *.memory
+
+# Example build artifacts
+examples/*/target/
+examples/*/Cargo.lock

@@ -5,6 +5,7 @@
 
 pub mod abi;
 pub mod kv;
+pub mod wasm;
 
 pub use abi::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 

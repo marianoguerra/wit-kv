@@ -1,0 +1,83 @@
+/// Map/Reduce WIT interfaces for wit-kv
+///
+/// These interfaces define the contract for WebAssembly Components that implement
+/// map and reduce operations. Values are passed as binary-export records containing
+/// canonical ABI encoded bytes.
+package wit-kv:mapreduce@0.1.0;
+
+interface types {
+    /// Binary export format - self-describing canonical ABI encoding.
+    /// This matches the binary-export type in kv.wit.
+    record binary-export {
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+        /// Linear memory bytes (for variable-length types like strings, lists)
+        memory: option<list<u8>>,
+    }
+}
+
+/// Map module interface.
+///
+/// Implement this world to create a map component. The component receives values
+/// as binary-export records and must decode them internally using its own type
+/// definitions.
+///
+/// Example usage:
+/// ```
+/// wit-kv map-low users --module filter-active.wasm
+/// ```
+world map-module {
+    use types.{binary-export};
+
+    /// Filter determines if a value should be processed.
+    ///
+    /// The component receives a binary-export containing the canonical ABI encoded
+    /// value from the keyspace. The component should decode this value using its
+    /// own type definition and return true if the value should be passed to transform().
+    ///
+    /// @param value - The encoded value from the keyspace
+    /// @returns true if the value should be processed by transform(), false to skip
+    export filter: func(value: binary-export) -> bool;
+
+    /// Transform a value from type T to type T1.
+    ///
+    /// Called only for values where filter() returned true. The component receives
+    /// the same binary-export value and should return a new binary-export containing
+    /// the transformed value (which may be a different type).
+    ///
+    /// @param value - The encoded input value (type T)
+    /// @returns The encoded output value (type T1, may be same as T)
+    export transform: func(value: binary-export) -> binary-export;
+}
+
+/// Reduce module interface.
+///
+/// Implement this world to create a reduce (fold-left) component. The component
+/// maintains an accumulator state that is combined with each value in sequence.
+///
+/// Example usage:
+/// ```
+/// wit-kv reduce-low orders --module sum-totals.wasm --state-wit aggregates.wit
+/// ```
+world reduce-module {
+    use types.{binary-export};
+
+    /// Initialize the accumulator state.
+    ///
+    /// Called once at the start of the reduce operation to create the initial
+    /// state value. The component should return a binary-export containing the
+    /// canonical ABI encoded initial state.
+    ///
+    /// @returns The encoded initial state (type StateType)
+    export init-state: func() -> binary-export;
+
+    /// Fold operation: combine current state with the next value.
+    ///
+    /// Called for each value in the keyspace (in key order). The component receives
+    /// the current accumulator state and the next value, and returns the new state.
+    ///
+    /// @param state - The current accumulator state (type StateType)
+    /// @param value - The next value from the keyspace (type T)
+    /// @returns The new accumulator state (type StateType)
+    export reduce: func(state: binary-export, value: binary-export) -> binary-export;
+}

@@ -1,10 +1,11 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use thiserror::Error;
 use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
 use wit_kv::kv::{BinaryExport, KvError, KvStore};
+use wit_kv::wasm::{KeyFilter, MapOperation, ReduceOperation, WasmError};
 use wit_kv::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 
 #[derive(Error, Debug)]
@@ -32,6 +33,19 @@ pub enum AppError {
 
     #[error("KV store error: {0}")]
     Kv(#[from] KvError),
+
+    #[error("Wasm execution error: {0}")]
+    Wasm(#[from] WasmError),
+}
+
+/// Output format for map results.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum OutputFormat {
+    /// WAVE text format (human-readable).
+    #[default]
+    Wave,
+    /// Binary format (binary-export).
+    Binary,
 }
 
 #[derive(Parser)]
@@ -209,6 +223,94 @@ enum Commands {
         /// Maximum number of keys to return
         #[arg(long)]
         limit: Option<usize>,
+
+        /// Store path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+    },
+
+    /// Map values in a keyspace through a WebAssembly Component
+    MapLow {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Path to the WebAssembly Component module (.wasm)
+        #[arg(long)]
+        module: PathBuf,
+
+        /// Process only this specific key
+        #[arg(long, group = "key_selection")]
+        key: Option<String>,
+
+        /// Filter keys by prefix
+        #[arg(long, group = "key_selection")]
+        prefix: Option<String>,
+
+        /// Start key for range (inclusive)
+        #[arg(long)]
+        start: Option<String>,
+
+        /// End key for range (exclusive)
+        #[arg(long)]
+        end: Option<String>,
+
+        /// Maximum number of values to process
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// WIT file defining the output type T1 (if different from keyspace type)
+        #[arg(long)]
+        output_wit: Option<PathBuf>,
+
+        /// Name of the output type in output_wit
+        #[arg(long)]
+        output_type: Option<String>,
+
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Wave)]
+        format: OutputFormat,
+
+        /// Store path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+    },
+
+    /// Reduce values in a keyspace using a WebAssembly Component (fold-left)
+    ReduceLow {
+        /// Name of the keyspace
+        keyspace: String,
+
+        /// Path to the WebAssembly Component module (.wasm)
+        #[arg(long)]
+        module: PathBuf,
+
+        /// Filter keys by prefix
+        #[arg(long)]
+        prefix: Option<String>,
+
+        /// Start key for range (inclusive)
+        #[arg(long)]
+        start: Option<String>,
+
+        /// End key for range (exclusive)
+        #[arg(long)]
+        end: Option<String>,
+
+        /// Maximum number of values to process
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// WIT file defining the state type (if not embedded in module)
+        #[arg(long)]
+        state_wit: Option<PathBuf>,
+
+        /// Name of the state type in state_wit
+        #[arg(long)]
+        state_type: Option<String>,
+
+        /// Output file for the result (stdout if not specified)
+        #[arg(long)]
+        output: Option<PathBuf>,
 
         /// Store path
         #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
@@ -455,6 +557,180 @@ fn main() -> Result<(), AppError> {
             } else {
                 for key in keys {
                     println!("{}", key);
+                }
+            }
+            Ok(())
+        }
+        Commands::MapLow {
+            keyspace,
+            module,
+            key,
+            prefix,
+            start,
+            end,
+            limit,
+            output_wit,
+            output_type,
+            format,
+            path,
+        } => {
+            let store = KvStore::open(&path)?;
+
+            // Determine key filter
+            let key_filter = if let Some(k) = key {
+                KeyFilter::Single(k)
+            } else if let Some(p) = prefix {
+                KeyFilter::Prefix(p)
+            } else if start.is_some() || end.is_some() {
+                KeyFilter::Range { start, end }
+            } else {
+                KeyFilter::All
+            };
+
+            // Execute map operation
+            let mut op = MapOperation::new(&store, &module)?;
+            let result = op.execute(&keyspace, key_filter, limit)?;
+
+            // Output results
+            match format {
+                OutputFormat::Wave => {
+                    // For WAVE output, we need to decode the binary values
+                    // If output_wit is provided, use that type; otherwise use keyspace type
+                    let (resolve, type_id) = if let Some(ref wit_path) = output_wit {
+                        load_wit_type(wit_path, output_type.as_deref())?
+                    } else {
+                        // Use keyspace type
+                        let metadata = store
+                            .get_type(&keyspace)?
+                            .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
+                        let mut resolve = Resolve::new();
+                        resolve.push_str("stored.wit", &metadata.wit_definition)?;
+                        let type_id = resolve
+                            .types
+                            .iter()
+                            .find(|(_, ty)| ty.name.as_deref() == Some(&metadata.type_name))
+                            .map(|(id, _)| id)
+                            .ok_or_else(|| AppError::TypeNotFound(metadata.type_name.clone()))?;
+                        (resolve, type_id)
+                    };
+
+                    let wave_type = resolve_wit_type(&resolve, type_id)
+                        .map_err(|e| AppError::WaveParse(e.to_string()))?;
+                    let abi = CanonicalAbi::new(&resolve);
+
+                    for (k, export) in &result.values {
+                        let memory = export
+                            .memory
+                            .as_ref()
+                            .map(|m| LinearMemory::from_bytes(m.clone()))
+                            .unwrap_or_default();
+                        match abi.lift_with_memory(&export.buffer, &Type::Id(type_id), &wave_type, &memory) {
+                            Ok((value, _)) => {
+                                let wave_str = wasm_wave::to_string(&value)
+                                    .map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                                println!("{}: {}", k, wave_str);
+                            }
+                            Err(e) => {
+                                eprintln!("{}: <decode error: {}>", k, e);
+                            }
+                        }
+                    }
+                }
+                OutputFormat::Binary => {
+                    // Output raw binary-export format for each result
+                    for (k, export) in &result.values {
+                        let (buffer, memory) = export.encode()?;
+                        // Write key length, key, then binary data
+                        let key_bytes = k.as_bytes();
+                        std::io::stdout().write_all(&(key_bytes.len() as u32).to_le_bytes())?;
+                        std::io::stdout().write_all(key_bytes)?;
+                        std::io::stdout().write_all(&(buffer.len() as u32).to_le_bytes())?;
+                        std::io::stdout().write_all(&buffer)?;
+                        std::io::stdout().write_all(&memory)?;
+                    }
+                }
+            }
+
+            // Print summary to stderr
+            eprintln!("{}", result.summary());
+            if result.has_errors() {
+                for (k, err) in &result.errors {
+                    eprintln!("  Error for '{}': {}", k, err);
+                }
+            }
+            Ok(())
+        }
+        Commands::ReduceLow {
+            keyspace,
+            module,
+            prefix,
+            start,
+            end,
+            limit,
+            state_wit,
+            state_type,
+            output,
+            path,
+        } => {
+            let store = KvStore::open(&path)?;
+
+            // Determine key filter
+            let key_filter = if let Some(p) = prefix {
+                KeyFilter::Prefix(p)
+            } else if start.is_some() || end.is_some() {
+                KeyFilter::Range { start, end }
+            } else {
+                KeyFilter::All
+            };
+
+            // Execute reduce operation
+            let mut op = ReduceOperation::new(&store, &module)?;
+            let result = op.execute(&keyspace, key_filter, limit)?;
+
+            // Encode the final state as binary-export
+            let (buffer, memory) = result.final_state.encode()?;
+
+            // Write output
+            match output {
+                Some(output_path) => {
+                    let mut file = std::fs::File::create(&output_path)?;
+                    file.write_all(&buffer)?;
+                    file.write_all(&memory)?;
+                    eprintln!(
+                        "Reduced {} values to {} ({} bytes)",
+                        result.processed_count,
+                        output_path.display(),
+                        buffer.len() + memory.len()
+                    );
+                }
+                None => {
+                    // If state_wit is provided, decode and output as WAVE
+                    if let Some(ref wit_path) = state_wit {
+                        let (resolve, type_id) = load_wit_type(wit_path, state_type.as_deref())?;
+                        let wave_type = resolve_wit_type(&resolve, type_id)
+                            .map_err(|e| AppError::WaveParse(e.to_string()))?;
+                        let abi = CanonicalAbi::new(&resolve);
+                        let mem = result
+                            .final_state
+                            .memory
+                            .as_ref()
+                            .map(|m| LinearMemory::from_bytes(m.clone()))
+                            .unwrap_or_default();
+                        let (value, _) = abi.lift_with_memory(
+                            &result.final_state.buffer,
+                            &Type::Id(type_id),
+                            &wave_type,
+                            &mem,
+                        )?;
+                        let wave_str = wasm_wave::to_string(&value)
+                            .map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                        println!("{}", wave_str);
+                    } else {
+                        // Output raw binary to stdout
+                        std::io::stdout().write_all(&buffer)?;
+                        std::io::stdout().write_all(&memory)?;
+                    }
+                    eprintln!("Reduced {} values ({} bytes)", result.processed_count, buffer.len() + memory.len());
                 }
             }
             Ok(())
