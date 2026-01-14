@@ -6,6 +6,7 @@ use fjall::{Keyspace, KeyspaceCreateOptions, PersistMode};
 use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
+use crate::wasm::val_to_wave;
 use crate::{find_first_named_type, find_type_by_name, CanonicalAbi, LinearMemory};
 
 use super::error::KvError;
@@ -270,12 +271,12 @@ impl KvStore {
         // Parse WIT type
         let (resolve, type_id, wave_type) = self.parse_stored_type(&metadata)?;
 
-        // Lift from canonical ABI
+        // Lift from canonical ABI to Val, then convert to wasm_wave::Value for text display
         let abi = CanonicalAbi::new(&resolve);
         let memory = LinearMemory::from_option(stored.memory);
 
-        let (value, _) =
-            abi.lift_with_memory(&stored.value, &Type::Id(type_id), &wave_type, &memory)?;
+        let (val, _) = abi.lift_to_val(&stored.value, &Type::Id(type_id), None, &memory)?;
+        let value = val_to_wave(&val, &wave_type).map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Convert to WAVE text
         let wave_str = wasm_wave::to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))?;

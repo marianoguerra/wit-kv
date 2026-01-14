@@ -498,7 +498,7 @@ impl TypedRunner {
         let (val, _) = abi.lift_to_val(
             &stored.value,
             &wit_parser::Type::Id(self.input_type_id),
-            func_param_type,
+            Some(func_param_type),
             &memory,
         )?;
 
@@ -669,7 +669,7 @@ impl TypedRunner {
         let (val, _) = abi.lift_to_val(
             &stored.value,
             &wit_parser::Type::Id(self.output_type_id), // Use output_type for state
-            func_param_type,
+            Some(func_param_type),
             &memory,
         )?;
 

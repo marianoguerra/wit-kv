@@ -5,7 +5,7 @@ use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
 use wit_kv::kv::{BinaryExport, KvError, KvStore};
-use wit_kv::wasm::{TypedRunner, WasmError};
+use wit_kv::wasm::{TypedRunner, WasmError, val_to_wave};
 use wit_kv::{
     find_first_named_type, find_type_by_name, CanonicalAbi, CanonicalAbiError, LinearMemory,
 };
@@ -375,11 +375,12 @@ fn main() -> Result<(), AppError> {
             let export = BinaryExport::decode_from_bytes(&data)?;
 
             // Lift the value from the exported buffer and memory
+            // Uses Val-based path: binary -> Val -> wasm_wave::Value -> text
             let abi = CanonicalAbi::new(&resolve);
             let ty = Type::Id(type_id);
             let memory = LinearMemory::from_option(export.memory);
-            let (value, _bytes_read) =
-                abi.lift_with_memory(&export.buffer, &ty, &wave_type, &memory)?;
+            let (val, _bytes_read) = abi.lift_to_val(&export.buffer, &ty, None, &memory)?;
+            let value = val_to_wave(&val, &wave_type)?;
 
             let wave_str =
                 wasm_wave::to_string(&value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
@@ -614,18 +615,26 @@ fn main() -> Result<(), AppError> {
                                 match runner.call_transform(&stored, metadata.type_version) {
                                     Ok(result) => {
                                         // Output the transformed value
+                                        // Uses Val-based path: binary -> Val -> wasm_wave::Value -> text
                                         let memory = LinearMemory::from_optional(result.memory.as_ref());
 
-                                        match output_abi.lift_with_memory(
+                                        match output_abi.lift_to_val(
                                             &result.value,
                                             &Type::Id(output_type_id),
-                                            &wave_type,
+                                            None,
                                             &memory,
                                         ) {
-                                            Ok((value, _)) => {
-                                                let wave_str = wasm_wave::to_string(&value)
-                                                    .map_err(|e| AppError::WaveWrite(e.to_string()))?;
-                                                println!("{}: {}", k, wave_str);
+                                            Ok((val, _)) => {
+                                                match val_to_wave(&val, &wave_type) {
+                                                    Ok(value) => {
+                                                        let wave_str = wasm_wave::to_string(&value)
+                                                            .map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                                                        println!("{}: {}", k, wave_str);
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("{}: <decode error: {}>", k, e);
+                                                    }
+                                                }
                                             }
                                             Err(e) => {
                                                 eprintln!("{}: <decode error: {}>", k, e);
@@ -723,21 +732,29 @@ fn main() -> Result<(), AppError> {
             }
 
             // Output final state as WAVE
+            // Uses Val-based path: binary -> Val -> wasm_wave::Value -> text
             let wave_type = runner.output_wave_type()?;
             let (output_resolve, output_type_id) = load_wit_type(&module_wit, Some(&state_type))?;
             let output_abi = CanonicalAbi::new(&output_resolve);
             let memory = LinearMemory::from_optional(state.memory.as_ref());
 
-            match output_abi.lift_with_memory(
+            match output_abi.lift_to_val(
                 &state.value,
                 &Type::Id(output_type_id),
-                &wave_type,
+                None,
                 &memory,
             ) {
-                Ok((value, _)) => {
-                    let wave_str = wasm_wave::to_string(&value)
-                        .map_err(|e| AppError::WaveWrite(e.to_string()))?;
-                    println!("{}", wave_str);
+                Ok((val, _)) => {
+                    match val_to_wave(&val, &wave_type) {
+                        Ok(value) => {
+                            let wave_str = wasm_wave::to_string(&value)
+                                .map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                            println!("{}", wave_str);
+                        }
+                        Err(e) => {
+                            eprintln!("<decode error: {}>", e);
+                        }
+                    }
                 }
                 Err(e) => {
                     eprintln!("<decode error: {}>", e);
