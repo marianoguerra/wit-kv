@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# wit-value Usage Example and Smoke Test
+# wit-kv Usage Example and Smoke Test
 #
-# This script demonstrates all CLI features of wit-value and can be run
+# This script demonstrates all CLI features of wit-kv and can be run
 # as a smoke test to verify the tool is working correctly.
 #
 # Usage:
@@ -22,12 +22,12 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Determine the wit-value command
+# Determine the wit-kv command
 if [ "$1" = "release" ]; then
-    WIT_VALUE="$PROJECT_ROOT/target/release/wit-value"
-    echo -e "${BLUE}Using release binary: $WIT_VALUE${NC}"
+    WIT_KV="$PROJECT_ROOT/target/release/wit-kv"
+    echo -e "${BLUE}Using release binary: $WIT_KV${NC}"
 else
-    WIT_VALUE="cargo run --quiet --manifest-path $PROJECT_ROOT/Cargo.toml --"
+    WIT_KV="cargo run --quiet --manifest-path $PROJECT_ROOT/Cargo.toml --"
     echo -e "${BLUE}Using cargo run${NC}"
 fi
 
@@ -123,7 +123,7 @@ cat types.wit
 
 # Test 1: Lower a simple record
 run_test "Lower a point record to binary" \
-    "$WIT_VALUE lower --wit types.wit --type-name point --value '{x: 42, y: 100}' --output point.bin"
+    "$WIT_KV lower --wit types.wit --type-name point --value '{x: 42, y: 100}' --output point.bin"
 
 # Verify the binary file was created
 run_test "Verify point.bin was created" \
@@ -131,12 +131,12 @@ run_test "Verify point.bin was created" \
 
 # Test 2: Lift the binary back to WAVE format
 check_output "Lift point.bin back to WAVE" \
-    "$WIT_VALUE lift --wit types.wit --type-name point --input point.bin" \
+    "$WIT_KV lift --wit types.wit --type-name point --input point.bin" \
     "x: 42"
 
 # Test 3: Lower a type with a string (creates .memory file)
 run_test "Lower a message with string (creates .memory file)" \
-    "$WIT_VALUE lower --wit types.wit --type-name message --value '{text: \"hello world\", count: 5}' --output msg.bin"
+    "$WIT_KV lower --wit types.wit --type-name message --value '{text: \"hello world\", count: 5}' --output msg.bin"
 
 # Verify both files were created
 run_test "Verify msg.bin and msg.bin.memory were created" \
@@ -144,31 +144,31 @@ run_test "Verify msg.bin and msg.bin.memory were created" \
 
 # Test 4: Lift the message back
 check_output "Lift msg.bin back to WAVE (uses .memory file automatically)" \
-    "$WIT_VALUE lift --wit types.wit --type-name message --input msg.bin" \
+    "$WIT_KV lift --wit types.wit --type-name message --input msg.bin" \
     "hello world"
 
 # Test 5: Lower an enum value
 run_test "Lower an enum value" \
-    "$WIT_VALUE lower --wit types.wit --type-name color --value 'green' --output color.bin"
+    "$WIT_KV lower --wit types.wit --type-name color --value 'green' --output color.bin"
 
 check_output "Lift enum back" \
-    "$WIT_VALUE lift --wit types.wit --type-name color --input color.bin" \
+    "$WIT_KV lift --wit types.wit --type-name color --input color.bin" \
     "green"
 
 # Test 6: Lower a variant
 run_test "Lower a variant (circle)" \
-    "$WIT_VALUE lower --wit types.wit --type-name shape --value 'circle(50)' --output shape.bin"
+    "$WIT_KV lower --wit types.wit --type-name shape --value 'circle(50)' --output shape.bin"
 
 check_output "Lift variant back" \
-    "$WIT_VALUE lift --wit types.wit --type-name shape --input shape.bin" \
+    "$WIT_KV lift --wit types.wit --type-name shape --input shape.bin" \
     "circle(50)"
 
 # Test 7: Lower flags
 run_test "Lower flags value" \
-    "$WIT_VALUE lower --wit types.wit --type-name permissions --value '{read, write}' --output perms.bin"
+    "$WIT_KV lower --wit types.wit --type-name permissions --value '{read, write}' --output perms.bin"
 
 check_output "Lift flags back" \
-    "$WIT_VALUE lift --wit types.wit --type-name permissions --input perms.bin" \
+    "$WIT_KV lift --wit types.wit --type-name permissions --input perms.bin" \
     "read"
 
 echo ""
@@ -176,12 +176,12 @@ echo "=============================================="
 echo "  PART 2: Key-Value Store Commands"
 echo "=============================================="
 echo ""
-echo "The kv subcommand provides a typed persistent key-value store"
+echo "wit-kv provides a typed persistent key-value store"
 echo "where each keyspace is associated with a WIT type."
 
 # Initialize a new KV store
 run_test "Initialize a new KV store" \
-    "$WIT_VALUE kv --path ./test-kv init"
+    "$WIT_KV init --path ./test-kv"
 
 run_test "Verify KV store was created" \
     "test -d ./test-kv && echo 'test-kv directory exists'"
@@ -203,66 +203,66 @@ cat task.wit
 
 # Register a type for a keyspace
 run_test "Register 'task' type for 'tasks' keyspace" \
-    "$WIT_VALUE kv --path ./test-kv set-type tasks --wit task.wit --type-name task"
+    "$WIT_KV set-type tasks --path ./test-kv --wit task.wit --type-name task"
 
 # List registered types
 check_output "List registered types" \
-    "$WIT_VALUE kv --path ./test-kv list-types" \
+    "$WIT_KV list-types --path ./test-kv" \
     "tasks"
 
 # Get type definition
 check_output "Get type definition for 'tasks' keyspace" \
-    "$WIT_VALUE kv --path ./test-kv get-type tasks" \
+    "$WIT_KV get-type tasks --path ./test-kv" \
     "record task"
 
 # Set some values
 run_test "Set task-1" \
-    "$WIT_VALUE kv --path ./test-kv set tasks task-1 --value '{title: \"Buy groceries\", completed: false, priority: 1}'"
+    "$WIT_KV set tasks task-1 --path ./test-kv --value '{title: \"Buy groceries\", completed: false, priority: 1}'"
 
 run_test "Set task-2" \
-    "$WIT_VALUE kv --path ./test-kv set tasks task-2 --value '{title: \"Walk the dog\", completed: true, priority: 2}'"
+    "$WIT_KV set tasks task-2 --path ./test-kv --value '{title: \"Walk the dog\", completed: true, priority: 2}'"
 
 run_test "Set task-3" \
-    "$WIT_VALUE kv --path ./test-kv set tasks task-3 --value '{title: \"Review PR\", completed: false, priority: 1}'"
+    "$WIT_KV set tasks task-3 --path ./test-kv --value '{title: \"Review PR\", completed: false, priority: 1}'"
 
 # Get values back
 check_output "Get task-1" \
-    "$WIT_VALUE kv --path ./test-kv get tasks task-1" \
+    "$WIT_KV get tasks task-1 --path ./test-kv" \
     "Buy groceries"
 
 check_output "Get task-2" \
-    "$WIT_VALUE kv --path ./test-kv get tasks task-2" \
+    "$WIT_KV get tasks task-2 --path ./test-kv" \
     "completed: true"
 
 # List keys
 check_output "List all keys in 'tasks' keyspace" \
-    "$WIT_VALUE kv --path ./test-kv list tasks" \
+    "$WIT_KV list tasks --path ./test-kv" \
     "task-1"
 
 check_output "List keys with prefix 'task-1'" \
-    "$WIT_VALUE kv --path ./test-kv list tasks --prefix task-1" \
+    "$WIT_KV list tasks --path ./test-kv --prefix task-1" \
     "task-1"
 
 check_output "List keys with limit" \
-    "$WIT_VALUE kv --path ./test-kv list tasks --limit 2" \
+    "$WIT_KV list tasks --path ./test-kv --limit 2" \
     "task"
 
 # Update a value
 run_test "Update task-1 (mark as completed)" \
-    "$WIT_VALUE kv --path ./test-kv set tasks task-1 --value '{title: \"Buy groceries\", completed: true, priority: 1}'"
+    "$WIT_KV set tasks task-1 --path ./test-kv --value '{title: \"Buy groceries\", completed: true, priority: 1}'"
 
 check_output "Verify task-1 was updated" \
-    "$WIT_VALUE kv --path ./test-kv get tasks task-1" \
+    "$WIT_KV get tasks task-1 --path ./test-kv" \
     "completed: true"
 
 # Delete a value
 run_test "Delete task-3" \
-    "$WIT_VALUE kv --path ./test-kv delete tasks task-3"
+    "$WIT_KV delete tasks task-3 --path ./test-kv"
 
 # Verify deletion
 echo -e "\n${BLUE}=== Verify task-3 was deleted ===${NC}"
-echo "$ $WIT_VALUE kv --path ./test-kv get tasks task-3"
-if $WIT_VALUE kv --path ./test-kv get tasks task-3 2>&1; then
+echo "$ $WIT_KV get tasks task-3 --path ./test-kv"
+if $WIT_KV get tasks task-3 --path ./test-kv 2>&1; then
     echo -e "${RED}FAILED (task-3 should not exist)${NC}"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 else
@@ -273,10 +273,10 @@ fi
 # Test value from file
 echo '{title: "From file", completed: false, priority: 3}' > task-from-file.wave
 run_test "Set value from file" \
-    "$WIT_VALUE kv --path ./test-kv set tasks task-from-file --file task-from-file.wave"
+    "$WIT_KV set tasks task-from-file --path ./test-kv --file task-from-file.wave"
 
 check_output "Verify value from file" \
-    "$WIT_VALUE kv --path ./test-kv get tasks task-from-file" \
+    "$WIT_KV get tasks task-from-file --path ./test-kv" \
     "From file"
 
 echo ""
@@ -297,17 +297,17 @@ interface types {
 EOF
 
 run_test "Register 'user' type for 'users' keyspace" \
-    "$WIT_VALUE kv --path ./test-kv set-type users --wit user.wit --type-name user"
+    "$WIT_KV set-type users --path ./test-kv --wit user.wit --type-name user"
 
 run_test "Set a user value" \
-    "$WIT_VALUE kv --path ./test-kv set users alice --value '{name: \"Alice\", email: \"alice@example.com\", active: true}'"
+    "$WIT_KV set users alice --path ./test-kv --value '{name: \"Alice\", email: \"alice@example.com\", active: true}'"
 
 check_output "Get user value" \
-    "$WIT_VALUE kv --path ./test-kv get users alice" \
+    "$WIT_KV get users alice --path ./test-kv" \
     "alice@example.com"
 
 check_output "List all keyspace types" \
-    "$WIT_VALUE kv --path ./test-kv list-types" \
+    "$WIT_KV list-types --path ./test-kv" \
     "users"
 
 echo ""
@@ -317,15 +317,15 @@ echo "=============================================="
 
 # Delete type without data
 run_test "Delete 'users' type (keeping data)" \
-    "$WIT_VALUE kv --path ./test-kv delete-type users"
+    "$WIT_KV delete-type users --path ./test-kv"
 
 # Verify type was deleted but we can re-register
 run_test "Re-register 'users' type" \
-    "$WIT_VALUE kv --path ./test-kv set-type users --wit user.wit --type-name user"
+    "$WIT_KV set-type users --path ./test-kv --wit user.wit --type-name user"
 
 # Delete type with data
 run_test "Delete 'users' type with --delete-data" \
-    "$WIT_VALUE kv --path ./test-kv delete-type users --delete-data"
+    "$WIT_KV delete-type users --path ./test-kv --delete-data"
 
 echo ""
 echo "=============================================="
@@ -334,7 +334,7 @@ echo "=============================================="
 
 export WIT_KV_PATH="./test-kv"
 check_output "Use WIT_KV_PATH environment variable" \
-    "$WIT_VALUE kv list-types" \
+    "$WIT_KV list-types" \
     "tasks"
 unset WIT_KV_PATH
 

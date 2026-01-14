@@ -1,13 +1,14 @@
-# wit-value
+# wit-kv
 
-A CLI tool and library for lowering and lifting WIT (WebAssembly Interface Types) values using the canonical ABI.
+A CLI tool and library for lowering and lifting WIT (WebAssembly Interface Types) values using the canonical ABI, with typed key-value storage.
 
 ## Overview
 
-`wit-value` provides functionality to:
+`wit-kv` provides functionality to:
 
 - **Lower**: Convert WAVE-encoded values to binary format using canonical ABI
 - **Lift**: Convert binary data back to WAVE-encoded representation
+- **Store**: Persist typed values in a key-value store using canonical ABI encoding
 
 This is useful for debugging, testing, and understanding how WIT types are encoded in the WebAssembly Component Model.
 
@@ -22,13 +23,13 @@ cargo build --release
 ### Lower a value to binary
 
 ```bash
-wit-value lower --wit types.wit --type-name point --value '{x: 42, y: 100}' --output point.bin
+wit-kv lower --wit types.wit --type-name point --value '{x: 42, y: 100}' --output point.bin
 ```
 
 ### Lift binary to WAVE representation
 
 ```bash
-wit-value lift --wit types.wit --type-name point --input point.bin
+wit-kv lift --wit types.wit --type-name point --input point.bin
 # Output: {x: 42, y: 100}
 ```
 
@@ -38,11 +39,11 @@ For types containing strings or lists, a `.memory` file is automatically created
 
 ```bash
 # Lower a string
-wit-value lower --wit types.wit --type-name message --value '{text: "hello"}' --output msg.bin
+wit-kv lower --wit types.wit --type-name message --value '{text: "hello"}' --output msg.bin
 # Creates: msg.bin (8 bytes) + msg.bin.memory (5 bytes)
 
 # Lift automatically uses the .memory file
-wit-value lift --wit types.wit --type-name message --input msg.bin
+wit-kv lift --wit types.wit --type-name message --input msg.bin
 # Output: {text: "hello"}
 ```
 
@@ -67,7 +68,7 @@ wit-value lift --wit types.wit --type-name message --input msg.bin
 ## Library Usage
 
 ```rust
-use wit_value::{CanonicalAbi, LinearMemory};
+use wit_kv::{CanonicalAbi, LinearMemory};
 use wit_parser::Resolve;
 
 // Load WIT types
@@ -118,12 +119,12 @@ Linear memory (.memory file):
 
 ## Typed Key-Value Store
 
-The `kv` subcommand provides a persistent, typed key-value store where each keyspace is associated with a WIT type. Values are stored using the canonical ABI binary format.
+`wit-kv` provides a persistent, typed key-value store where each keyspace is associated with a WIT type. Values are stored using the canonical ABI binary format.
 
 ### Initialize a store
 
 ```bash
-wit-value kv init
+wit-kv init
 # Creates .wit-kv/ directory (or use --path to specify location)
 ```
 
@@ -143,37 +144,37 @@ interface types {
 EOF
 
 # Register the type for a keyspace
-wit-value kv set-type tasks --wit todo.wit --type-name task
+wit-kv set-type tasks --wit todo.wit --type-name task
 ```
 
 ### Store and retrieve values
 
 ```bash
 # Set a value (WAVE format)
-wit-value kv set tasks task-1 --value '{title: "Buy groceries", completed: false, priority: 1}'
+wit-kv set tasks task-1 --value '{title: "Buy groceries", completed: false, priority: 1}'
 
 # Get a value
-wit-value kv get tasks task-1
+wit-kv get tasks task-1
 # Output: {title: "Buy groceries", completed: false, priority: 1}
 
 # List keys in a keyspace
-wit-value kv list tasks
+wit-kv list tasks
 
 # Delete a value
-wit-value kv delete tasks task-1
+wit-kv delete tasks task-1
 ```
 
 ### Manage types
 
 ```bash
 # List all registered types
-wit-value kv list-types
+wit-kv list-types
 
 # Get the WIT definition for a keyspace
-wit-value kv get-type tasks
+wit-kv get-type tasks
 
 # Delete a keyspace type (add --delete-data to also delete all values)
-wit-value kv delete-type tasks --delete-data
+wit-kv delete-type tasks --delete-data
 ```
 
 ### Environment variables

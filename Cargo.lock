@@ -2264,6 +2264,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "wit-kv"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crc32fast",
+ "fjall",
+ "once_cell",
+ "proptest",
+ "thiserror 2.0.17",
+ "wasm-wave",
+ "wasmtime",
+ "wit-component",
+ "wit-parser 0.244.0",
+]
+
+[[package]]
 name = "wit-parser"
 version = "0.243.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2297,23 +2314,6 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser 0.244.0",
-]
-
-[[package]]
-name = "wit-value"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crc32fast",
- "fjall",
- "once_cell",
- "proptest",
- "thiserror 2.0.17",
- "wasm-wave",
- "wasmtime",
- "wit-component",
- "wit-parser 0.244.0",
 ]
 
 [[package]]

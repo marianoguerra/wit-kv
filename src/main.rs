@@ -4,8 +4,8 @@ use thiserror::Error;
 use wasm_wave::value::{resolve_wit_type, Value};
 use wit_parser::{Resolve, Type, TypeId};
 
-use wit_value::kv::{KvError, KvStore};
-use wit_value::{CanonicalAbi, CanonicalAbiError, LinearMemory};
+use wit_kv::kv::{KvError, KvStore};
+use wit_kv::{CanonicalAbi, CanonicalAbiError, LinearMemory};
 
 #[derive(Error, Debug)]
 pub enum AppError {
@@ -35,8 +35,8 @@ pub enum AppError {
 }
 
 #[derive(Parser)]
-#[command(name = "wit-value")]
-#[command(about = "Lower and lift WIT values using canonical ABI")]
+#[command(name = "wit-kv")]
+#[command(about = "Lower and lift WIT values using canonical ABI, with typed key-value storage")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -82,21 +82,12 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Key-value store operations
-    Kv {
-        /// Database path (default: .wit-kv/)
-        #[arg(long, global = true, default_value = ".wit-kv", env = "WIT_KV_PATH")]
-        path: PathBuf,
-
-        #[command(subcommand)]
-        command: KvCommands,
-    },
-}
-
-#[derive(Subcommand)]
-enum KvCommands {
     /// Initialize a new key-value store
-    Init,
+    Init {
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+    },
 
     /// Register a type for a keyspace
     SetType {
@@ -114,6 +105,10 @@ enum KvCommands {
         /// Overwrite existing type definition
         #[arg(long)]
         force: bool,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 
     /// Get the type definition for a keyspace
@@ -124,6 +119,10 @@ enum KvCommands {
         /// Output raw binary format instead of WIT text
         #[arg(long)]
         binary: bool,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 
     /// Delete a keyspace type
@@ -134,10 +133,18 @@ enum KvCommands {
         /// Also delete all data in the keyspace
         #[arg(long)]
         delete_data: bool,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 
     /// List all registered types
-    ListTypes,
+    ListTypes {
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
+    },
 
     /// Set a value in a keyspace
     Set {
@@ -154,6 +161,10 @@ enum KvCommands {
         /// Read WAVE value from file
         #[arg(long, group = "input")]
         file: Option<PathBuf>,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 
     /// Get a value from a keyspace
@@ -171,6 +182,10 @@ enum KvCommands {
         /// Output full stored format (value + memory)
         #[arg(long)]
         raw: bool,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 
     /// Delete a value from a keyspace
@@ -180,6 +195,10 @@ enum KvCommands {
 
         /// Key for the value
         key: String,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 
     /// List keys in a keyspace
@@ -194,10 +213,16 @@ enum KvCommands {
         /// Maximum number of keys to return
         #[arg(long)]
         limit: Option<usize>,
+
+        /// Database path
+        #[arg(long, default_value = ".wit-kv", env = "WIT_KV_PATH")]
+        path: PathBuf,
     },
 }
 
 fn main() -> Result<(), AppError> {
+    use std::io::Write;
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -285,27 +310,20 @@ fn main() -> Result<(), AppError> {
             }
             Ok(())
         }
-        Commands::Kv { path, command } => handle_kv_command(&path, command),
-    }
-}
-
-fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), AppError> {
-    use std::io::Write;
-
-    match command {
-        KvCommands::Init => {
-            let store = KvStore::init(path)?;
+        Commands::Init { path } => {
+            let store = KvStore::init(&path)?;
             drop(store);
             println!("Initialized KV store at {}", path.display());
             Ok(())
         }
-        KvCommands::SetType {
+        Commands::SetType {
             keyspace,
             wit,
             type_name,
             force,
+            path,
         } => {
-            let store = KvStore::open(path)?;
+            let store = KvStore::open(&path)?;
             let metadata = store.set_type(&keyspace, &wit, type_name.as_deref(), force)?;
             println!(
                 "Registered type '{}' for keyspace '{}' ({})",
@@ -313,8 +331,12 @@ fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), 
             );
             Ok(())
         }
-        KvCommands::GetType { keyspace, binary } => {
-            let store = KvStore::open(path)?;
+        Commands::GetType {
+            keyspace,
+            binary,
+            path,
+        } => {
+            let store = KvStore::open(&path)?;
             match store.get_type(&keyspace)? {
                 Some(metadata) => {
                     if binary {
@@ -335,11 +357,12 @@ fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), 
             }
             Ok(())
         }
-        KvCommands::DeleteType {
+        Commands::DeleteType {
             keyspace,
             delete_data,
+            path,
         } => {
-            let store = KvStore::open(path)?;
+            let store = KvStore::open(&path)?;
             store.delete_type(&keyspace, delete_data)?;
             if delete_data {
                 println!("Deleted keyspace '{}' and all its data", keyspace);
@@ -348,8 +371,8 @@ fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), 
             }
             Ok(())
         }
-        KvCommands::ListTypes => {
-            let store = KvStore::open(path)?;
+        Commands::ListTypes { path } => {
+            let store = KvStore::open(&path)?;
             let types = store.list_types()?;
             if types.is_empty() {
                 println!("No types registered");
@@ -363,13 +386,14 @@ fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), 
             }
             Ok(())
         }
-        KvCommands::Set {
+        Commands::Set {
             keyspace,
             key,
             value,
             file,
+            path,
         } => {
-            let store = KvStore::open(path)?;
+            let store = KvStore::open(&path)?;
             let wave_value = match (value, file) {
                 (Some(v), None) => v,
                 (None, Some(f)) => std::fs::read_to_string(f)?,
@@ -384,13 +408,14 @@ fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), 
             println!("Set '{}' in keyspace '{}'", key, keyspace);
             Ok(())
         }
-        KvCommands::Get {
+        Commands::Get {
             keyspace,
             key,
             binary,
             raw,
+            path,
         } => {
-            let store = KvStore::open(path)?;
+            let store = KvStore::open(&path)?;
             if binary || raw {
                 match store.get_raw(&keyspace, &key)? {
                     Some(stored) => {
@@ -423,18 +448,19 @@ fn handle_kv_command(path: &std::path::Path, command: KvCommands) -> Result<(), 
             }
             Ok(())
         }
-        KvCommands::Delete { keyspace, key } => {
-            let store = KvStore::open(path)?;
+        Commands::Delete { keyspace, key, path } => {
+            let store = KvStore::open(&path)?;
             store.delete(&keyspace, &key)?;
             println!("Deleted '{}' from keyspace '{}'", key, keyspace);
             Ok(())
         }
-        KvCommands::List {
+        Commands::List {
             keyspace,
             prefix,
             limit,
+            path,
         } => {
-            let store = KvStore::open(path)?;
+            let store = KvStore::open(&path)?;
             let keys = store.list(&keyspace, prefix.as_deref(), limit)?;
             if keys.is_empty() {
                 println!("No keys found");
