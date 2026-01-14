@@ -114,7 +114,7 @@ enum Commands {
         wit: PathBuf,
 
         /// Name of the type to use (if not specified, uses the first type found)
-        #[arg(long)]
+        #[arg(short = 't', long)]
         type_name: Option<String>,
 
         /// Overwrite existing type definition
