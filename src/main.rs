@@ -10,43 +10,68 @@ use wit_kv::{
     find_first_named_type, find_type_by_name, CanonicalAbi, CanonicalAbiError, LinearMemory,
 };
 
+/// CLI-specific errors.
 #[derive(Error, Debug)]
 pub enum AppError {
+    /// Library error (wraps all wit_kv errors)
+    #[error(transparent)]
+    Library(#[from] wit_kv::Error),
+
+    /// IO error
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("WIT parsing error: {0}")]
-    WitParse(#[from] anyhow::Error),
-
+    /// WAVE parsing error
     #[error("WAVE parsing error: {0}")]
     WaveParse(String),
 
+    /// WAVE writing error
     #[error("WAVE writing error: {0}")]
     WaveWrite(String),
 
+    /// Type not found
     #[error("Type not found: {0}")]
     TypeNotFound(String),
 
-    #[error("Canonical ABI error: {0}")]
-    CanonicalAbi(#[from] CanonicalAbiError),
-
+    /// No types found in WIT file
     #[error("No types found in WIT file")]
     NoTypes,
 
-    #[error("KV store error: {0}")]
-    Kv(#[from] KvError),
-
-    #[error("Wasm execution error: {0}")]
-    Wasm(#[from] WasmError),
-
+    /// Missing value input
     #[error("Either --value or --file must be specified")]
     MissingValueInput,
 
+    /// Key not found
     #[error("Key '{key}' not found in keyspace '{keyspace}'")]
     KeyNotFound { keyspace: String, key: String },
 
+    /// Keyspace not found
     #[error("Keyspace '{0}' not found")]
     KeyspaceNotFound(String),
+}
+
+impl From<KvError> for AppError {
+    fn from(e: KvError) -> Self {
+        Self::Library(e.into())
+    }
+}
+
+impl From<WasmError> for AppError {
+    fn from(e: WasmError) -> Self {
+        Self::Library(e.into())
+    }
+}
+
+impl From<CanonicalAbiError> for AppError {
+    fn from(e: CanonicalAbiError) -> Self {
+        Self::Library(e.into())
+    }
+}
+
+impl From<anyhow::Error> for AppError {
+    fn from(e: anyhow::Error) -> Self {
+        Self::Library(wit_kv::Error::WitParse(e))
+    }
 }
 
 #[derive(Parser)]
@@ -344,10 +369,11 @@ fn format_error(err: &AppError) -> String {
 /// Get a helpful hint for common errors
 fn get_error_hint(err: &AppError) -> Option<&'static str> {
     match err {
-        AppError::Kv(KvError::NotInitialized(_)) => {
+        AppError::Library(wit_kv::Error::Kv(KvError::NotInitialized(_))) => {
             Some("Run 'wit-kv init --path <PATH>' to initialize a new store")
         }
-        AppError::Kv(KvError::KeyspaceNotFound(_)) | AppError::KeyspaceNotFound(_) => {
+        AppError::Library(wit_kv::Error::Kv(KvError::KeyspaceNotFound(_)))
+        | AppError::KeyspaceNotFound(_) => {
             Some("Run 'wit-kv set-type <KEYSPACE> --wit <FILE>' to register a type first")
         }
         AppError::KeyNotFound { .. } => {
@@ -633,80 +659,40 @@ fn run(cli: Cli) -> Result<(), AppError> {
             path,
         } => {
             let store = KvStore::open(&path)?;
-
-            // Create typed runner
-            let mut runner = TypedRunner::new(
-                &module,
-                &module_wit,
-                &input_type,
-                output_type.as_deref(),
-            )?;
-
-            // Get keyspace metadata for lifting values
+            let mut runner = TypedRunner::new(&module, &module_wit, &input_type, output_type.as_deref())?;
             let metadata = store
                 .get_type(&keyspace)?
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
-            // Get keys to process
-            let keys: Vec<String> = if let Some(k) = key {
-                vec![k]
-            } else {
-                store.list(
-                    &keyspace,
-                    prefix.as_deref(),
-                    start.as_deref(),
-                    end.as_deref(),
-                    limit,
-                )?
-            };
-
-            let mut processed = 0;
-            let mut filtered = 0;
-            let mut transformed = 0;
-            let mut errors: Vec<(String, String)> = Vec::new();
+            let keys = collect_keys(&store, &keyspace, key, prefix.as_deref(), start.as_deref(), end.as_deref(), limit)?;
+            let mut stats = ProcessingStats::new();
 
             for k in keys {
                 match store.get_raw(&keyspace, &k)? {
                     Some(stored) => {
-                        // Call filter
                         match runner.call_filter(&stored) {
                             Ok(true) => {
-                                // Call transform
                                 match runner.call_transform(&stored, metadata.type_version) {
                                     Ok(result) => {
                                         match runner.stored_to_wave_string(&result) {
                                             Ok(wave_str) => println!("{}: {}", k, wave_str),
                                             Err(e) => eprintln!("{}: <decode error: {}>", k, e),
                                         }
-                                        transformed += 1;
+                                        stats.transformed += 1;
                                     }
-                                    Err(e) => {
-                                        errors.push((k.clone(), format!("transform: {}", e)));
-                                    }
+                                    Err(e) => stats.add_error(&k, format!("transform: {}", e)),
                                 }
                             }
-                            Ok(false) => {
-                                filtered += 1;
-                            }
-                            Err(e) => {
-                                errors.push((k.clone(), format!("filter: {}", e)));
-                            }
+                            Ok(false) => stats.filtered += 1,
+                            Err(e) => stats.add_error(&k, format!("filter: {}", e)),
                         }
-                        processed += 1;
+                        stats.processed += 1;
                     }
-                    None => {
-                        errors.push((k.clone(), "not found".to_string()));
-                    }
+                    None => stats.add_error(&k, "not found".to_string()),
                 }
             }
 
-            eprintln!(
-                "Processed {} keys: {} transformed, {} filtered out, {} errors",
-                processed, transformed, filtered, errors.len()
-            );
-            for (k, err) in &errors {
-                eprintln!("  Error for '{}': {}", k, err);
-            }
+            stats.print_map_summary();
             Ok(())
         }
         Commands::Reduce {
@@ -722,33 +708,14 @@ fn run(cli: Cli) -> Result<(), AppError> {
             path,
         } => {
             let store = KvStore::open(&path)?;
-
-            // Create typed runner with input_type for values and state_type for state
-            let mut runner = TypedRunner::new(
-                &module,
-                &module_wit,
-                &input_type,
-                Some(&state_type),
-            )?;
-
-            // Get keyspace metadata for type version
+            let mut runner = TypedRunner::new(&module, &module_wit, &input_type, Some(&state_type))?;
             let metadata = store
                 .get_type(&keyspace)?
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
-            // Get keys to process
-            let keys: Vec<String> = store.list(
-                &keyspace,
-                prefix.as_deref(),
-                start.as_deref(),
-                end.as_deref(),
-                limit,
-            )?;
-
-            // Initialize state
+            let keys = collect_keys(&store, &keyspace, None, prefix.as_deref(), start.as_deref(), end.as_deref(), limit)?;
             let mut state = runner.call_init_state(metadata.type_version)?;
-            let mut processed = 0;
-            let mut errors: Vec<(String, String)> = Vec::new();
+            let mut stats = ProcessingStats::new();
 
             for k in keys {
                 match store.get_raw(&keyspace, &k)? {
@@ -756,32 +723,21 @@ fn run(cli: Cli) -> Result<(), AppError> {
                         match runner.call_reduce(&state, &stored, metadata.type_version) {
                             Ok(new_state) => {
                                 state = new_state;
-                                processed += 1;
+                                stats.processed += 1;
                             }
-                            Err(e) => {
-                                errors.push((k.clone(), format!("reduce: {}", e)));
-                            }
+                            Err(e) => stats.add_error(&k, format!("reduce: {}", e)),
                         }
                     }
-                    None => {
-                        errors.push((k.clone(), "not found".to_string()));
-                    }
+                    None => stats.add_error(&k, "not found".to_string()),
                 }
             }
 
-            // Output final state as WAVE
             match runner.stored_to_wave_string(&state) {
                 Ok(wave_str) => println!("{}", wave_str),
                 Err(e) => eprintln!("<decode error: {}>", e),
             }
 
-            eprintln!(
-                "Reduced {} values, {} errors",
-                processed, errors.len()
-            );
-            for (k, err) in &errors {
-                eprintln!("  Error for '{}': {}", k, err);
-            }
+            stats.print_reduce_summary();
             Ok(())
         }
     }
@@ -799,4 +755,64 @@ fn load_wit_type(wit_path: &PathBuf, type_name: Option<&str>) -> Result<(Resolve
     }?;
 
     Ok((resolve, type_id))
+}
+
+/// Collects keys for processing based on filter options.
+fn collect_keys(
+    store: &KvStore,
+    keyspace: &str,
+    key: Option<String>,
+    prefix: Option<&str>,
+    start: Option<&str>,
+    end: Option<&str>,
+    limit: Option<usize>,
+) -> Result<Vec<String>, AppError> {
+    if let Some(k) = key {
+        Ok(vec![k])
+    } else {
+        Ok(store.list(keyspace, prefix, start, end, limit)?)
+    }
+}
+
+/// Statistics for map/reduce operations.
+struct ProcessingStats {
+    processed: usize,
+    transformed: usize,
+    filtered: usize,
+    errors: Vec<(String, String)>,
+}
+
+impl ProcessingStats {
+    fn new() -> Self {
+        Self {
+            processed: 0,
+            transformed: 0,
+            filtered: 0,
+            errors: Vec::new(),
+        }
+    }
+
+    fn add_error(&mut self, key: &str, error: String) {
+        self.errors.push((key.to_string(), error));
+    }
+
+    fn print_map_summary(&self) {
+        eprintln!(
+            "Processed {} keys: {} transformed, {} filtered out, {} errors",
+            self.processed, self.transformed, self.filtered, self.errors.len()
+        );
+        for (k, err) in &self.errors {
+            eprintln!("  Error for '{}': {}", k, err);
+        }
+    }
+
+    fn print_reduce_summary(&self) {
+        eprintln!(
+            "Reduced {} values, {} errors",
+            self.processed, self.errors.len()
+        );
+        for (k, err) in &self.errors {
+            eprintln!("  Error for '{}': {}", k, err);
+        }
+    }
 }

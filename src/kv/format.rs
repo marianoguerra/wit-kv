@@ -4,8 +4,8 @@
 //! structures using the WIT types defined in kv.wit.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use wasm_wave::value::{resolve_wit_type, Type as WaveType, Value};
 use wasm_wave::wasm::{WasmType, WasmValue};
 use wit_parser::{Resolve, Type, TypeId};
@@ -16,6 +16,17 @@ use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};
 use super::version::SemanticVersion;
 
+/// Helper to find a type by name and return an error if not found.
+fn require_type(resolve: &Resolve, name: &str) -> Result<TypeId, KvError> {
+    find_type_by_name(resolve, name)
+        .ok_or_else(|| KvError::TypeNotFound(name.to_string()))
+}
+
+/// Helper to resolve a WIT type to a WaveType.
+fn require_wave_type(resolve: &Resolve, type_id: TypeId) -> Result<WaveType, KvError> {
+    resolve_wit_type(resolve, type_id).map_err(|e| KvError::WaveParse(e.to_string()))
+}
+
 /// Lazily loaded KV WIT types.
 struct KvTypes {
     resolve: Resolve,
@@ -24,7 +35,7 @@ struct KvTypes {
     binary_export_id: TypeId,
     key_list_id: TypeId,
     keyspace_list_id: TypeId,
-    database_info_id: TypeId,
+    _database_info_id: TypeId,
     database_list_id: TypeId,
     stored_value_wave_type: WaveType,
     keyspace_metadata_wave_type: WaveType,
@@ -35,7 +46,7 @@ struct KvTypes {
     database_list_wave_type: WaveType,
 }
 
-static KV_TYPES: Lazy<KvTypes> = Lazy::new(|| {
+static KV_TYPES: LazyLock<KvTypes> = LazyLock::new(|| {
     // This expect is acceptable because kv.wit is a compile-time constant embedded in the binary.
     // If it fails to parse, it's a bug in the embedded WIT file, not a runtime error.
     #[allow(clippy::expect_used)]
@@ -44,53 +55,25 @@ static KV_TYPES: Lazy<KvTypes> = Lazy::new(|| {
 
 fn load_kv_types() -> Result<KvTypes, KvError> {
     let mut resolve = Resolve::new();
-
-    // Load the kv.wit file from the crate root
-    let kv_wit = include_str!("../../kv.wit");
-    resolve.push_str("kv.wit", kv_wit)?;
+    resolve.push_str("kv.wit", include_str!("../../kv.wit"))?;
 
     // Find the types
-    let stored_value_id = find_type_by_name(&resolve, "stored-value")
-        .ok_or_else(|| KvError::TypeNotFound("stored-value".to_string()))?;
+    let stored_value_id = require_type(&resolve, "stored-value")?;
+    let keyspace_metadata_id = require_type(&resolve, "keyspace-metadata")?;
+    let binary_export_id = require_type(&resolve, "binary-export")?;
+    let key_list_id = require_type(&resolve, "key-list")?;
+    let keyspace_list_id = require_type(&resolve, "keyspace-list")?;
+    let database_info_id = require_type(&resolve, "database-info")?;
+    let database_list_id = require_type(&resolve, "database-list")?;
 
-    let keyspace_metadata_id = find_type_by_name(&resolve, "keyspace-metadata")
-        .ok_or_else(|| KvError::TypeNotFound("keyspace-metadata".to_string()))?;
-
-    let binary_export_id = find_type_by_name(&resolve, "binary-export")
-        .ok_or_else(|| KvError::TypeNotFound("binary-export".to_string()))?;
-
-    let key_list_id = find_type_by_name(&resolve, "key-list")
-        .ok_or_else(|| KvError::TypeNotFound("key-list".to_string()))?;
-
-    let keyspace_list_id = find_type_by_name(&resolve, "keyspace-list")
-        .ok_or_else(|| KvError::TypeNotFound("keyspace-list".to_string()))?;
-
-    let database_info_id = find_type_by_name(&resolve, "database-info")
-        .ok_or_else(|| KvError::TypeNotFound("database-info".to_string()))?;
-
-    let database_list_id = find_type_by_name(&resolve, "database-list")
-        .ok_or_else(|| KvError::TypeNotFound("database-list".to_string()))?;
-
-    let stored_value_wave_type = resolve_wit_type(&resolve, stored_value_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-    let keyspace_metadata_wave_type = resolve_wit_type(&resolve, keyspace_metadata_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-    let binary_export_wave_type = resolve_wit_type(&resolve, binary_export_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-    let key_list_wave_type = resolve_wit_type(&resolve, key_list_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-    let keyspace_list_wave_type = resolve_wit_type(&resolve, keyspace_list_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-    let database_info_wave_type = resolve_wit_type(&resolve, database_info_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-    let database_list_wave_type = resolve_wit_type(&resolve, database_list_id)
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+    // Resolve wave types
+    let stored_value_wave_type = require_wave_type(&resolve, stored_value_id)?;
+    let keyspace_metadata_wave_type = require_wave_type(&resolve, keyspace_metadata_id)?;
+    let binary_export_wave_type = require_wave_type(&resolve, binary_export_id)?;
+    let key_list_wave_type = require_wave_type(&resolve, key_list_id)?;
+    let keyspace_list_wave_type = require_wave_type(&resolve, keyspace_list_id)?;
+    let database_info_wave_type = require_wave_type(&resolve, database_info_id)?;
+    let database_list_wave_type = require_wave_type(&resolve, database_list_id)?;
 
     Ok(KvTypes {
         resolve,
@@ -99,7 +82,7 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
         binary_export_id,
         key_list_id,
         keyspace_list_id,
-        database_info_id,
+        _database_info_id: database_info_id,
         database_list_id,
         stored_value_wave_type,
         keyspace_metadata_wave_type,

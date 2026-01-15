@@ -21,6 +21,14 @@ import type {
 const MIME_WASM_WAVE = 'application/x-wasm-wave';
 const MIME_OCTET_STREAM = 'application/octet-stream';
 
+/** Options for building list query parameters */
+interface ListParams {
+  prefix?: string;
+  start?: string;
+  end?: string;
+  limit?: number;
+}
+
 /**
  * Client for the wit-kv HTTP API.
  */
@@ -40,6 +48,46 @@ export class WitKvClient {
     this.defaultDatabase = defaultDatabase;
   }
 
+  // ===========================================================================
+  // Private Helpers
+  // ===========================================================================
+
+  /**
+   * Get the Accept header value for the given format.
+   */
+  private acceptHeader(format: ContentFormat): string {
+    return format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE;
+  }
+
+  /**
+   * Build URL with optional query parameters for list operations.
+   */
+  private buildListUrl(basePath: string, params?: ListParams): string {
+    const searchParams = new URLSearchParams();
+    if (params?.prefix !== undefined) searchParams.set('prefix', params.prefix);
+    if (params?.start !== undefined) searchParams.set('start', params.start);
+    if (params?.end !== undefined) searchParams.set('end', params.end);
+    if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
+    const queryString = searchParams.toString();
+    return queryString ? `${basePath}?${queryString}` : basePath;
+  }
+
+  /**
+   * Fetch with format negotiation. Returns text or ArrayBuffer based on format.
+   */
+  private async fetchWithFormat(
+    url: string,
+    format: ContentFormat
+  ): Promise<string | ArrayBuffer> {
+    const response = await fetch(url, {
+      headers: { Accept: this.acceptHeader(format) },
+    });
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+    return format === 'binary' ? response.arrayBuffer() : response.text();
+  }
+
   /**
    * Get a value from the store.
    *
@@ -55,22 +103,9 @@ export class WitKvClient {
   ): Promise<string | ArrayBuffer> {
     const db = options?.database ?? this.defaultDatabase;
     const format = options?.format ?? 'wave';
+    const url = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/kv/${encodeURIComponent(keyspace)}/${encodeURIComponent(key)}`;
 
-    const response = await fetch(
-      `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/kv/${encodeURIComponent(keyspace)}/${encodeURIComponent(key)}`,
-      {
-        method: 'GET',
-        headers: {
-          Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
-    return format === 'binary' ? response.arrayBuffer() : response.text();
+    return this.fetchWithFormat(url, format);
   }
 
   /**
@@ -144,33 +179,14 @@ export class WitKvClient {
   ): Promise<string[] | ArrayBuffer> {
     const db = options?.database ?? this.defaultDatabase;
     const format = options?.format ?? 'wave';
-    const params = new URLSearchParams();
+    const basePath = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/kv/${encodeURIComponent(keyspace)}`;
+    const url = this.buildListUrl(basePath, options);
 
-    if (options?.prefix !== undefined) params.set('prefix', options.prefix);
-    if (options?.start !== undefined) params.set('start', options.start);
-    if (options?.end !== undefined) params.set('end', options.end);
-    if (options?.limit !== undefined) params.set('limit', String(options.limit));
-
-    const queryString = params.toString();
-    const url = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/kv/${encodeURIComponent(keyspace)}${queryString ? '?' + queryString : ''}`;
-
-    const response = await fetch(url, {
-      headers: {
-        Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-      },
-    });
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
+    const result = await this.fetchWithFormat(url, format);
     if (format === 'binary') {
-      return response.arrayBuffer();
+      return result as ArrayBuffer;
     }
-
-    // Parse WAVE format: {keys: ["key1", "key2"]}
-    const wave = await response.text();
-    return this.parseKeyList(wave);
+    return this.parseKeyList(result as string);
   }
 
   /**
@@ -186,33 +202,14 @@ export class WitKvClient {
   ): Promise<KeyList | ArrayBuffer> {
     const db = options?.database ?? this.defaultDatabase;
     const format = options?.format ?? 'wave';
-    const params = new URLSearchParams();
+    const basePath = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/kv/${encodeURIComponent(keyspace)}`;
+    const url = this.buildListUrl(basePath, options);
 
-    if (options?.prefix !== undefined) params.set('prefix', options.prefix);
-    if (options?.start !== undefined) params.set('start', options.start);
-    if (options?.end !== undefined) params.set('end', options.end);
-    if (options?.limit !== undefined) params.set('limit', String(options.limit));
-
-    const queryString = params.toString();
-    const url = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/kv/${encodeURIComponent(keyspace)}${queryString ? '?' + queryString : ''}`;
-
-    const response = await fetch(url, {
-      headers: {
-        Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-      },
-    });
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
+    const result = await this.fetchWithFormat(url, format);
     if (format === 'binary') {
-      return response.arrayBuffer();
+      return result as ArrayBuffer;
     }
-
-    // Parse WAVE format: {keys: ["key1", "key2"]}
-    const wave = await response.text();
-    return { keys: this.parseKeyList(wave) };
+    return { keys: this.parseKeyList(result as string) };
   }
 
   /**
@@ -313,27 +310,13 @@ export class WitKvClient {
   async listTypes(options?: GetOptions): Promise<TypeMetadata[] | ArrayBuffer> {
     const db = options?.database ?? this.defaultDatabase;
     const format = options?.format ?? 'wave';
+    const url = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/types`;
 
-    const response = await fetch(
-      `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/types`,
-      {
-        headers: {
-          Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
+    const result = await this.fetchWithFormat(url, format);
     if (format === 'binary') {
-      return response.arrayBuffer();
+      return result as ArrayBuffer;
     }
-
-    // Parse WAVE format and extract keyspaces
-    const wave = await response.text();
-    return this.parseKeyspaceList(wave);
+    return this.parseKeyspaceList(result as string);
   }
 
   /**
@@ -345,27 +328,13 @@ export class WitKvClient {
   async listTypesRaw(options?: GetOptions): Promise<KeyspaceList | ArrayBuffer> {
     const db = options?.database ?? this.defaultDatabase;
     const format = options?.format ?? 'wave';
+    const url = `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/types`;
 
-    const response = await fetch(
-      `${this.baseUrl}/api/v1/db/${encodeURIComponent(db)}/types`,
-      {
-        headers: {
-          Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
+    const result = await this.fetchWithFormat(url, format);
     if (format === 'binary') {
-      return response.arrayBuffer();
+      return result as ArrayBuffer;
     }
-
-    // Parse WAVE format
-    const wave = await response.text();
-    return { keyspaces: this.parseKeyspaceList(wave) };
+    return { keyspaces: this.parseKeyspaceList(result as string) };
   }
 
   /**
@@ -376,24 +345,13 @@ export class WitKvClient {
    */
   async listDatabases(options?: Omit<GetOptions, 'database'>): Promise<string[] | ArrayBuffer> {
     const format = options?.format ?? 'wave';
+    const url = `${this.baseUrl}/api/v1/databases`;
 
-    const response = await fetch(`${this.baseUrl}/api/v1/databases`, {
-      headers: {
-        Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-      },
-    });
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
+    const result = await this.fetchWithFormat(url, format);
     if (format === 'binary') {
-      return response.arrayBuffer();
+      return result as ArrayBuffer;
     }
-
-    // Parse WAVE format and extract database names
-    const wave = await response.text();
-    return this.parseDatabaseList(wave);
+    return this.parseDatabaseList(result as string);
   }
 
   /**
@@ -404,24 +362,13 @@ export class WitKvClient {
    */
   async listDatabasesRaw(options?: Omit<GetOptions, 'database'>): Promise<DatabaseList | ArrayBuffer> {
     const format = options?.format ?? 'wave';
+    const url = `${this.baseUrl}/api/v1/databases`;
 
-    const response = await fetch(`${this.baseUrl}/api/v1/databases`, {
-      headers: {
-        Accept: format === 'binary' ? MIME_OCTET_STREAM : MIME_WASM_WAVE,
-      },
-    });
-
-    if (!response.ok) {
-      throw await this.parseError(response);
-    }
-
+    const result = await this.fetchWithFormat(url, format);
     if (format === 'binary') {
-      return response.arrayBuffer();
+      return result as ArrayBuffer;
     }
-
-    // Parse WAVE format
-    const wave = await response.text();
-    const names = this.parseDatabaseList(wave);
+    const names = this.parseDatabaseList(result as string);
     return { databases: names.map(name => ({ name })) };
   }
 
