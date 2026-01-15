@@ -5,11 +5,10 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Deserialize;
 
-use crate::kv::BinaryExport;
+use crate::kv::{BinaryExport, KeyList};
 
 use super::super::{
     content::{AcceptFormat, ContentFormat, FormatResponse, RequestFormat},
@@ -31,7 +30,8 @@ pub async fn list_keys(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
     Query(query): Query<ListQuery>,
-) -> Result<Json<Vec<String>>, ApiError> {
+    AcceptFormat(format): AcceptFormat,
+) -> Result<Response, ApiError> {
     let store = state.get_database(&database)?;
 
     let keys = store.list(
@@ -42,7 +42,21 @@ pub async fn list_keys(
         query.limit,
     )?;
 
-    Ok(Json(keys))
+    let key_list = KeyList::new(keys);
+
+    match format {
+        ContentFormat::Wave => Ok(FormatResponse::wave(key_list.to_wave()).into_response()),
+        ContentFormat::Binary => {
+            let (buffer, memory) = key_list
+                .encode()
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+
+            let mut bytes = buffer;
+            bytes.extend(memory);
+
+            Ok(FormatResponse::binary(bytes).into_response())
+        }
+    }
 }
 
 /// Get a value from the store.

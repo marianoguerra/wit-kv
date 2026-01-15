@@ -11,7 +11,7 @@ mod types;
 mod version;
 
 pub use error::KvError;
-pub use format::BinaryExport;
+pub use format::{BinaryExport, DatabaseInfo, DatabaseList, KeyList, KeyspaceList};
 pub use store::KvStore;
 pub use types::{KeyspaceMetadata, StoredValue};
 pub use version::{ParseVersionError, SemanticVersion};

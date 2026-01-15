@@ -22,9 +22,17 @@ struct KvTypes {
     stored_value_id: TypeId,
     keyspace_metadata_id: TypeId,
     binary_export_id: TypeId,
+    key_list_id: TypeId,
+    keyspace_list_id: TypeId,
+    database_info_id: TypeId,
+    database_list_id: TypeId,
     stored_value_wave_type: WaveType,
     keyspace_metadata_wave_type: WaveType,
     binary_export_wave_type: WaveType,
+    key_list_wave_type: WaveType,
+    keyspace_list_wave_type: WaveType,
+    database_info_wave_type: WaveType,
+    database_list_wave_type: WaveType,
 }
 
 static KV_TYPES: Lazy<KvTypes> = Lazy::new(|| {
@@ -51,6 +59,18 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
     let binary_export_id = find_type_by_name(&resolve, "binary-export")
         .ok_or_else(|| KvError::TypeNotFound("binary-export".to_string()))?;
 
+    let key_list_id = find_type_by_name(&resolve, "key-list")
+        .ok_or_else(|| KvError::TypeNotFound("key-list".to_string()))?;
+
+    let keyspace_list_id = find_type_by_name(&resolve, "keyspace-list")
+        .ok_or_else(|| KvError::TypeNotFound("keyspace-list".to_string()))?;
+
+    let database_info_id = find_type_by_name(&resolve, "database-info")
+        .ok_or_else(|| KvError::TypeNotFound("database-info".to_string()))?;
+
+    let database_list_id = find_type_by_name(&resolve, "database-list")
+        .ok_or_else(|| KvError::TypeNotFound("database-list".to_string()))?;
+
     let stored_value_wave_type = resolve_wit_type(&resolve, stored_value_id)
         .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
@@ -60,14 +80,34 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
     let binary_export_wave_type = resolve_wit_type(&resolve, binary_export_id)
         .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
+    let key_list_wave_type = resolve_wit_type(&resolve, key_list_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+    let keyspace_list_wave_type = resolve_wit_type(&resolve, keyspace_list_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+    let database_info_wave_type = resolve_wit_type(&resolve, database_info_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+    let database_list_wave_type = resolve_wit_type(&resolve, database_list_id)
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
     Ok(KvTypes {
         resolve,
         stored_value_id,
         keyspace_metadata_id,
         binary_export_id,
+        key_list_id,
+        keyspace_list_id,
+        database_info_id,
+        database_list_id,
         stored_value_wave_type,
         keyspace_metadata_wave_type,
         binary_export_wave_type,
+        key_list_wave_type,
+        keyspace_list_wave_type,
+        database_info_wave_type,
+        database_list_wave_type,
     })
 }
 
@@ -440,6 +480,237 @@ impl BinaryExport {
             .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect());
 
         Ok(BinaryExport { buffer, memory })
+    }
+}
+
+/// List of keys in a keyspace.
+/// This mirrors the `key-list` WIT type in kv.wit.
+#[derive(Debug, Clone)]
+pub struct KeyList {
+    /// The keys in the keyspace
+    pub keys: Vec<String>,
+}
+
+impl KeyList {
+    /// Create a new KeyList from a vector of strings.
+    pub fn new(keys: Vec<String>) -> Self {
+        Self { keys }
+    }
+
+    /// Encode the KeyList to binary using canonical ABI.
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let wave_value = self.to_wave_value(&kv.key_list_wave_type)?;
+
+        let mut memory = LinearMemory::new();
+        let buffer = abi.lower_with_memory(
+            &wave_value,
+            &Type::Id(kv.key_list_id),
+            &kv.key_list_wave_type,
+            &mut memory,
+        )?;
+
+        Ok((buffer, memory.into_bytes()))
+    }
+
+    /// Convert to WAVE text format.
+    pub fn to_wave(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        out.push_str("{keys: [");
+        for (i, key) in self.keys.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            write!(out, "\"{}\"", key.escape_default()).ok();
+        }
+        out.push_str("]}");
+        out
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        let keys_field_type = get_field_type(wave_type, "keys")
+            .ok_or_else(|| KvError::InvalidFormat("Missing keys field type".to_string()))?;
+
+        let keys_val = Value::make_list(
+            &keys_field_type,
+            self.keys.iter().map(|k| Value::make_string(Cow::Borrowed(k))),
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+        Value::make_record(wave_type, vec![("keys", keys_val)])
+            .map_err(|e| KvError::WaveParse(e.to_string()))
+    }
+}
+
+/// List of keyspaces (type registrations) in a database.
+/// This mirrors the `keyspace-list` WIT type in kv.wit.
+#[derive(Debug, Clone)]
+pub struct KeyspaceList {
+    /// The keyspaces with their metadata
+    pub keyspaces: Vec<KeyspaceMetadata>,
+}
+
+impl KeyspaceList {
+    /// Create a new KeyspaceList from a vector of metadata.
+    pub fn new(keyspaces: Vec<KeyspaceMetadata>) -> Self {
+        Self { keyspaces }
+    }
+
+    /// Encode the KeyspaceList to binary using canonical ABI.
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let wave_value = self.to_wave_value(&kv.keyspace_list_wave_type)?;
+
+        let mut memory = LinearMemory::new();
+        let buffer = abi.lower_with_memory(
+            &wave_value,
+            &Type::Id(kv.keyspace_list_id),
+            &kv.keyspace_list_wave_type,
+            &mut memory,
+        )?;
+
+        Ok((buffer, memory.into_bytes()))
+    }
+
+    /// Convert to WAVE text format.
+    pub fn to_wave(&self) -> Result<String, KvError> {
+        use std::fmt::Write;
+        let mut out = String::new();
+        out.push_str("{keyspaces: [");
+        for (i, ks) in self.keyspaces.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            write!(
+                out,
+                "{{name: \"{}\", qualified-name: \"{}\", wit-definition: \"{}\", type-name: \"{}\", type-version: {{major: {}, minor: {}, patch: {}}}, type-hash: {}, created-at: {}}}",
+                ks.name.escape_default(),
+                ks.qualified_name.escape_default(),
+                ks.wit_definition.escape_default(),
+                ks.type_name.escape_default(),
+                ks.type_version.major,
+                ks.type_version.minor,
+                ks.type_version.patch,
+                ks.type_hash,
+                ks.created_at
+            ).ok();
+        }
+        out.push_str("]}");
+        Ok(out)
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        let keyspaces_field_type = get_field_type(wave_type, "keyspaces")
+            .ok_or_else(|| KvError::InvalidFormat("Missing keyspaces field type".to_string()))?;
+
+        let kv = &*KV_TYPES;
+        let keyspace_values: Result<Vec<_>, _> = self
+            .keyspaces
+            .iter()
+            .map(|ks| ks.to_wave_value(&kv.keyspace_metadata_wave_type))
+            .collect();
+
+        let keyspaces_val = Value::make_list(&keyspaces_field_type, keyspace_values?)
+            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+        Value::make_record(wave_type, vec![("keyspaces", keyspaces_val)])
+            .map_err(|e| KvError::WaveParse(e.to_string()))
+    }
+}
+
+/// Database information.
+/// This mirrors the `database-info` WIT type in kv.wit.
+#[derive(Debug, Clone)]
+pub struct DatabaseInfo {
+    /// Database name
+    pub name: String,
+}
+
+impl DatabaseInfo {
+    /// Create a new DatabaseInfo.
+    pub fn new(name: String) -> Self {
+        Self { name }
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        Value::make_record(
+            wave_type,
+            vec![("name", Value::make_string(Cow::Borrowed(&self.name)))],
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))
+    }
+}
+
+/// List of databases.
+/// This mirrors the `database-list` WIT type in kv.wit.
+#[derive(Debug, Clone)]
+pub struct DatabaseList {
+    /// The databases
+    pub databases: Vec<DatabaseInfo>,
+}
+
+impl DatabaseList {
+    /// Create a new DatabaseList from a vector of names.
+    pub fn from_names(names: Vec<&str>) -> Self {
+        Self {
+            databases: names.into_iter().map(|n| DatabaseInfo::new(n.to_string())).collect(),
+        }
+    }
+
+    /// Encode the DatabaseList to binary using canonical ABI.
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>), KvError> {
+        let kv = &*KV_TYPES;
+        let abi = CanonicalAbi::new(&kv.resolve);
+
+        let wave_value = self.to_wave_value(&kv.database_list_wave_type)?;
+
+        let mut memory = LinearMemory::new();
+        let buffer = abi.lower_with_memory(
+            &wave_value,
+            &Type::Id(kv.database_list_id),
+            &kv.database_list_wave_type,
+            &mut memory,
+        )?;
+
+        Ok((buffer, memory.into_bytes()))
+    }
+
+    /// Convert to WAVE text format.
+    pub fn to_wave(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        out.push_str("{databases: [");
+        for (i, db) in self.databases.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            write!(out, "{{name: \"{}\"}}", db.name.escape_default()).ok();
+        }
+        out.push_str("]}");
+        out
+    }
+
+    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
+        let databases_field_type = get_field_type(wave_type, "databases")
+            .ok_or_else(|| KvError::InvalidFormat("Missing databases field type".to_string()))?;
+
+        let kv = &*KV_TYPES;
+        let db_values: Result<Vec<_>, _> = self
+            .databases
+            .iter()
+            .map(|db| db.to_wave_value(&kv.database_info_wave_type))
+            .collect();
+
+        let databases_val = Value::make_list(&databases_field_type, db_values?)
+            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+
+        Value::make_record(wave_type, vec![("databases", databases_val)])
+            .map_err(|e| KvError::WaveParse(e.to_string()))
     }
 }
 

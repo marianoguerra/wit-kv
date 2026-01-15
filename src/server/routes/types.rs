@@ -4,15 +4,20 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
-use crate::kv::KeyspaceMetadata;
+use crate::kv::{KeyspaceList, KeyspaceMetadata};
 
-use super::super::{error::ApiError, state::AppState};
+use super::super::{
+    content::{AcceptFormat, ContentFormat, FormatResponse},
+    error::ApiError,
+    state::AppState,
+};
 
 /// Query parameters for setting a type.
 #[derive(Debug, Deserialize, Default)]
@@ -74,11 +79,30 @@ impl From<KeyspaceMetadata> for TypeMetadataResponse {
 pub async fn list_types(
     State(state): State<AppState>,
     Path(database): Path<String>,
-) -> Result<Json<Vec<TypeMetadataResponse>>, ApiError> {
+    AcceptFormat(format): AcceptFormat,
+) -> Result<Response, ApiError> {
     let store = state.get_database(&database)?;
     let types = store.list_types()?;
-    let response: Vec<TypeMetadataResponse> = types.into_iter().map(Into::into).collect();
-    Ok(Json(response))
+    let keyspace_list = KeyspaceList::new(types);
+
+    match format {
+        ContentFormat::Wave => {
+            let wave = keyspace_list
+                .to_wave()
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            Ok(FormatResponse::wave(wave).into_response())
+        }
+        ContentFormat::Binary => {
+            let (buffer, memory) = keyspace_list
+                .encode()
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+
+            let mut bytes = buffer;
+            bytes.extend(memory);
+
+            Ok(FormatResponse::binary(bytes).into_response())
+        }
+    }
 }
 
 /// Get type metadata for a keyspace.
