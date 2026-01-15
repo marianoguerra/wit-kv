@@ -36,6 +36,8 @@ pub mod abi;
 #[cfg(feature = "kv")]
 pub mod kv;
 pub mod prelude;
+#[cfg(feature = "server")]
+pub mod server;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
