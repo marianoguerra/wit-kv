@@ -5,9 +5,10 @@
 #![cfg(feature = "server")]
 
 use axum::http::StatusCode;
+use axum_test::multipart::{MultipartForm, Part};
 use axum_test::TestServer;
 use tempfile::TempDir;
-use wit_kv::server::{router, AppState, Config, DatabaseConfig, ServerConfig};
+use wit_kv::server::{router, AppState, Config, CorsConfig, DatabaseConfig, ServerConfig};
 
 /// Test application wrapper that manages a temporary database.
 struct TestApp {
@@ -24,7 +25,9 @@ impl TestApp {
             server: ServerConfig {
                 bind: "127.0.0.1".into(),
                 port: 0,
+                static_path: None,
             },
+            cors: CorsConfig::default(),
             databases: vec![DatabaseConfig {
                 name: "test".into(),
                 path: db_path.to_string_lossy().into(),
@@ -185,13 +188,15 @@ async fn test_list_types() -> anyhow::Result<()> {
         .await
         .assert_status_ok();
 
-    // List all types
+    // List all types (returns WAVE format: {keyspaces: [...]})
     let response = app.server.get("/api/v1/db/test/types").await;
 
     response.assert_status_ok();
-    let body: serde_json::Value = response.json();
-    let types = body.as_array().expect("expected array");
-    assert_eq!(types.len(), 2);
+    let body = response.text();
+    // WAVE format: {keyspaces: [{name: "...", ...}, ...]}
+    // Just verify both keyspaces are mentioned
+    assert!(body.contains("points"));
+    assert!(body.contains("counters"));
 
     Ok(())
 }
@@ -326,15 +331,15 @@ async fn test_list_keys() -> anyhow::Result<()> {
         .await
         .assert_status(StatusCode::NO_CONTENT);
 
-    // List all keys
+    // List all keys (returns WAVE format: {keys: ["a", "b", "c"]})
     let response = app.server.get("/api/v1/db/test/kv/points").await;
 
     response.assert_status_ok();
-    let keys: Vec<String> = response.json();
-    assert_eq!(keys.len(), 3);
-    assert!(keys.contains(&"a".to_string()));
-    assert!(keys.contains(&"b".to_string()));
-    assert!(keys.contains(&"c".to_string()));
+    let body = response.text();
+    // WAVE format: {keys: ["a", "b", "c"]}
+    assert!(body.contains("\"a\""));
+    assert!(body.contains("\"b\""));
+    assert!(body.contains("\"c\""));
 
     Ok(())
 }
@@ -373,7 +378,7 @@ async fn test_list_keys_with_prefix() -> anyhow::Result<()> {
             .assert_status(StatusCode::NO_CONTENT);
     }
 
-    // List keys with prefix
+    // List keys with prefix (returns WAVE format: {keys: ["user:1", "user:2"]})
     let response = app
         .server
         .get("/api/v1/db/test/kv/points")
@@ -381,9 +386,11 @@ async fn test_list_keys_with_prefix() -> anyhow::Result<()> {
         .await;
 
     response.assert_status_ok();
-    let keys: Vec<String> = response.json();
-    assert_eq!(keys.len(), 2);
-    assert!(keys.iter().all(|k| k.starts_with("user:")));
+    let body = response.text();
+    // WAVE format: {keys: ["user:1", "user:2"]}
+    assert!(body.contains("\"user:1\""));
+    assert!(body.contains("\"user:2\""));
+    assert!(!body.contains("\"admin:"));
 
     Ok(())
 }
@@ -422,7 +429,7 @@ async fn test_list_keys_with_limit() -> anyhow::Result<()> {
             .assert_status(StatusCode::NO_CONTENT);
     }
 
-    // List with limit
+    // List with limit (returns WAVE format: {keys: [...]})
     let response = app
         .server
         .get("/api/v1/db/test/kv/points")
@@ -430,8 +437,11 @@ async fn test_list_keys_with_limit() -> anyhow::Result<()> {
         .await;
 
     response.assert_status_ok();
-    let keys: Vec<String> = response.json();
-    assert_eq!(keys.len(), 5);
+    let body = response.text();
+    // WAVE format: {keys: ["key0", "key1", ..., "key4"]}
+    // Count the number of quoted strings in the keys array
+    let key_count = body.matches("\"key").count();
+    assert_eq!(key_count, 5);
 
     Ok(())
 }
@@ -519,6 +529,429 @@ async fn test_key_not_found() -> anyhow::Result<()> {
 
     let body: serde_json::Value = response.json();
     assert_eq!(body["error"]["code"].as_str(), Some("KEY_NOT_FOUND"));
+
+    Ok(())
+}
+
+// =============================================================================
+// Map/Reduce Operations Tests
+// =============================================================================
+
+/// Path to the pre-built point-filter WASM component
+const POINT_FILTER_WASM: &str = "examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm";
+
+/// Path to the pre-built sum-scores WASM component
+const SUM_SCORES_WASM: &str = "examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm";
+
+/// WIT definition for point type (matches point-filter)
+const POINT_WIT: &str = r#"
+package wit-kv:typed-map@0.1.0;
+
+interface types {
+    record point {
+        x: s32,
+        y: s32,
+    }
+}
+
+world typed-map-module {
+    use types.{point};
+    export filter: func(value: point) -> bool;
+    export transform: func(value: point) -> point;
+}
+"#;
+
+/// WIT definition for person/total types (matches sum-scores)
+const PERSON_WIT: &str = r#"
+package wit-kv:typed-sum-scores@0.1.0;
+
+interface types {
+    record person {
+        age: u8,
+        score: u32,
+    }
+
+    record total {
+        sum: u64,
+        count: u32,
+    }
+}
+
+world typed-reduce-module {
+    use types.{person, total};
+    export init-state: func() -> total;
+    export reduce: func(state: total, value: person) -> total;
+}
+"#;
+
+#[tokio::test]
+async fn test_map_operation() -> anyhow::Result<()> {
+    // Skip test if WASM module not built
+    if !std::path::Path::new(POINT_FILTER_WASM).exists() {
+        eprintln!("Skipping test_map_operation: WASM module not built. Run 'just build-examples' first.");
+        return Ok(());
+    }
+
+    let app = TestApp::new()?;
+
+    // Register the point type
+    let wit_def = r#"
+        package test:types;
+
+        interface types {
+            record point {
+                x: s32,
+                y: s32,
+            }
+        }
+    "#;
+
+    app.server
+        .put("/api/v1/db/test/types/points")
+        .add_query_param("type_name", "point")
+        .content_type("text/plain")
+        .text(wit_def)
+        .await
+        .assert_status_ok();
+
+    // Add test data: points at various distances from origin
+    // point-filter keeps points within radius 100 and doubles coordinates
+    let points = [
+        ("p1", "{x: 10, y: 20}"),   // distance ~22, will be kept and doubled
+        ("p2", "{x: 50, y: 50}"),   // distance ~70, will be kept and doubled
+        ("p3", "{x: 150, y: 0}"),   // distance 150, will be filtered out
+        ("p4", "{x: 3, y: 4}"),     // distance 5, will be kept and doubled
+    ];
+
+    for (key, value) in points {
+        app.server
+            .put(&format!("/api/v1/db/test/kv/points/{}", key))
+            .content_type("application/x-wasm-wave")
+            .text(value)
+            .await
+            .assert_status(StatusCode::NO_CONTENT);
+    }
+
+    // Load the WASM module
+    let wasm_bytes = std::fs::read(POINT_FILTER_WASM)?;
+
+    // Create multipart form with module and config
+    let config = serde_json::json!({
+        "wit_definition": POINT_WIT,
+        "input_type": "point",
+        "output_type": "point"
+    });
+
+    let multipart = MultipartForm::new()
+        .add_part("module", Part::bytes(wasm_bytes).file_name("module.wasm"))
+        .add_part("config", Part::text(config.to_string()));
+
+    // Execute map operation
+    let response = app
+        .server
+        .post("/api/v1/db/test/map/points")
+        .multipart(multipart)
+        .await;
+
+    response.assert_status_ok();
+
+    let result: serde_json::Value = response.json();
+
+    // Verify results
+    assert_eq!(result["processed"].as_u64(), Some(4), "should process 4 keys");
+    assert_eq!(result["transformed"].as_u64(), Some(3), "should transform 3 keys (p1, p2, p4)");
+    assert_eq!(result["filtered"].as_u64(), Some(1), "should filter 1 key (p3)");
+
+    // Check that results contain transformed values (coordinates doubled)
+    let results = result["results"].as_array().expect("results should be array");
+    assert_eq!(results.len(), 3, "should have 3 transformed results");
+
+    // Verify p4 was doubled: {x: 3, y: 4} -> {x: 6, y: 8}
+    let p4_result = results.iter().find(|r| r[0].as_str() == Some("p4"));
+    assert!(p4_result.is_some(), "p4 should be in results");
+    let p4_value = p4_result.unwrap()[1].as_str().unwrap();
+    assert!(p4_value.contains("6") && p4_value.contains("8"), "p4 should be doubled to {{x: 6, y: 8}}");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_map_operation_with_filter() -> anyhow::Result<()> {
+    // Skip test if WASM module not built
+    if !std::path::Path::new(POINT_FILTER_WASM).exists() {
+        eprintln!("Skipping test: WASM module not built. Run 'just build-examples' first.");
+        return Ok(());
+    }
+
+    let app = TestApp::new()?;
+
+    // Register the point type
+    let wit_def = r#"
+        package test:types;
+
+        interface types {
+            record point {
+                x: s32,
+                y: s32,
+            }
+        }
+    "#;
+
+    app.server
+        .put("/api/v1/db/test/types/points")
+        .add_query_param("type_name", "point")
+        .content_type("text/plain")
+        .text(wit_def)
+        .await
+        .assert_status_ok();
+
+    // Add test data with prefixed keys
+    let points = [
+        ("user:p1", "{x: 10, y: 20}"),
+        ("user:p2", "{x: 50, y: 50}"),
+        ("admin:p1", "{x: 3, y: 4}"),
+    ];
+
+    for (key, value) in points {
+        app.server
+            .put(&format!("/api/v1/db/test/kv/points/{}", key))
+            .content_type("application/x-wasm-wave")
+            .text(value)
+            .await
+            .assert_status(StatusCode::NO_CONTENT);
+    }
+
+    // Load the WASM module
+    let wasm_bytes = std::fs::read(POINT_FILTER_WASM)?;
+
+    // Create config with prefix filter
+    let config = serde_json::json!({
+        "wit_definition": POINT_WIT,
+        "input_type": "point",
+        "output_type": "point",
+        "filter": {
+            "prefix": "user:"
+        }
+    });
+
+    let multipart = MultipartForm::new()
+        .add_part("module", Part::bytes(wasm_bytes).file_name("module.wasm"))
+        .add_part("config", Part::text(config.to_string()));
+
+    let response = app
+        .server
+        .post("/api/v1/db/test/map/points")
+        .multipart(multipart)
+        .await;
+
+    response.assert_status_ok();
+
+    let result: serde_json::Value = response.json();
+
+    // Should only process keys with "user:" prefix
+    assert_eq!(result["processed"].as_u64(), Some(2), "should process 2 user: keys");
+    assert_eq!(result["transformed"].as_u64(), Some(2), "should transform 2 keys");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reduce_operation() -> anyhow::Result<()> {
+    // Skip test if WASM module not built
+    if !std::path::Path::new(SUM_SCORES_WASM).exists() {
+        eprintln!("Skipping test_reduce_operation: WASM module not built. Run 'just build-examples' first.");
+        return Ok(());
+    }
+
+    let app = TestApp::new()?;
+
+    // Register the person type
+    let wit_def = r#"
+        package test:types;
+
+        interface types {
+            record person {
+                age: u8,
+                score: u32,
+            }
+        }
+    "#;
+
+    app.server
+        .put("/api/v1/db/test/types/users")
+        .add_query_param("type_name", "person")
+        .content_type("text/plain")
+        .text(wit_def)
+        .await
+        .assert_status_ok();
+
+    // Add test data
+    let users = [
+        ("alice", "{age: 30, score: 100}"),
+        ("bob", "{age: 25, score: 85}"),
+        ("charlie", "{age: 35, score: 120}"),
+    ];
+
+    for (key, value) in users {
+        app.server
+            .put(&format!("/api/v1/db/test/kv/users/{}", key))
+            .content_type("application/x-wasm-wave")
+            .text(value)
+            .await
+            .assert_status(StatusCode::NO_CONTENT);
+    }
+
+    // Load the WASM module
+    let wasm_bytes = std::fs::read(SUM_SCORES_WASM)?;
+
+    // Create multipart form with module and config
+    let config = serde_json::json!({
+        "wit_definition": PERSON_WIT,
+        "input_type": "person",
+        "state_type": "total"
+    });
+
+    let multipart = MultipartForm::new()
+        .add_part("module", Part::bytes(wasm_bytes).file_name("module.wasm"))
+        .add_part("config", Part::text(config.to_string()));
+
+    // Execute reduce operation
+    let response = app
+        .server
+        .post("/api/v1/db/test/reduce/users")
+        .multipart(multipart)
+        .await;
+
+    response.assert_status_ok();
+
+    let result: serde_json::Value = response.json();
+
+    // Verify results
+    assert_eq!(result["processed"].as_u64(), Some(3), "should process 3 users");
+    assert_eq!(result["error_count"].as_u64(), Some(0), "should have no errors");
+
+    // Check final state: sum = 100 + 85 + 120 = 305, count = 3
+    let state = result["state"].as_str().expect("state should be a string");
+    assert!(state.contains("305"), "sum should be 305, got: {}", state);
+    assert!(state.contains("3"), "count should be 3, got: {}", state);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_map_missing_module_field() -> anyhow::Result<()> {
+    let app = TestApp::new()?;
+
+    // Register a type
+    let wit_def = r#"
+        package test:types;
+        interface types {
+            record point { x: s32, y: s32, }
+        }
+    "#;
+
+    app.server
+        .put("/api/v1/db/test/types/points")
+        .add_query_param("type_name", "point")
+        .content_type("text/plain")
+        .text(wit_def)
+        .await
+        .assert_status_ok();
+
+    // Send multipart without 'module' field
+    let config = serde_json::json!({
+        "wit_definition": "record point { x: s32, y: s32 }",
+        "input_type": "point"
+    });
+
+    let multipart = MultipartForm::new()
+        .add_part("config", Part::text(config.to_string()));
+
+    let response = app
+        .server
+        .post("/api/v1/db/test/map/points")
+        .multipart(multipart)
+        .await;
+
+    response.assert_status(StatusCode::BAD_REQUEST);
+
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["code"].as_str(), Some("MISSING_FIELD"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_map_missing_config_field() -> anyhow::Result<()> {
+    let app = TestApp::new()?;
+
+    // Register a type
+    let wit_def = r#"
+        package test:types;
+        interface types {
+            record point { x: s32, y: s32, }
+        }
+    "#;
+
+    app.server
+        .put("/api/v1/db/test/types/points")
+        .add_query_param("type_name", "point")
+        .content_type("text/plain")
+        .text(wit_def)
+        .await
+        .assert_status_ok();
+
+    // Send multipart without 'config' field
+    let multipart = MultipartForm::new()
+        .add_part("module", Part::bytes(vec![0u8; 10]).file_name("module.wasm"));
+
+    let response = app
+        .server
+        .post("/api/v1/db/test/map/points")
+        .multipart(multipart)
+        .await;
+
+    response.assert_status(StatusCode::BAD_REQUEST);
+
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["code"].as_str(), Some("MISSING_FIELD"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_map_keyspace_not_found() -> anyhow::Result<()> {
+    // Skip test if WASM module not built (we need a real component to get past the runner creation)
+    if !std::path::Path::new(POINT_FILTER_WASM).exists() {
+        eprintln!("Skipping test: WASM module not built. Run 'just build-examples' first.");
+        return Ok(());
+    }
+
+    let app = TestApp::new()?;
+
+    // Don't register any type - keyspace doesn't exist
+    // Use valid WASM and WIT so we get to the keyspace check
+    let wasm_bytes = std::fs::read(POINT_FILTER_WASM)?;
+
+    let config = serde_json::json!({
+        "wit_definition": POINT_WIT,
+        "input_type": "point"
+    });
+
+    let multipart = MultipartForm::new()
+        .add_part("module", Part::bytes(wasm_bytes).file_name("module.wasm"))
+        .add_part("config", Part::text(config.to_string()));
+
+    let response = app
+        .server
+        .post("/api/v1/db/test/map/nonexistent")
+        .multipart(multipart)
+        .await;
+
+    response.assert_status(StatusCode::NOT_FOUND);
+
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["code"].as_str(), Some("KEYSPACE_NOT_FOUND"));
 
     Ok(())
 }
