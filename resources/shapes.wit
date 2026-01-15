@@ -1,0 +1,16 @@
+// shapes.wit
+package demo:shapes;
+
+interface types {
+    record point { x: s32, y: s32 }
+
+    variant shape {
+        circle(u32),
+        rectangle(point),
+        triangle(tuple<point, point, point>),
+    }
+
+    flags permissions { read, write, execute }
+
+    enum color { red, green, blue }
+}

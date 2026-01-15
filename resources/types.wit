@@ -1,0 +1,10 @@
+// types.wit
+package myapp:types;
+
+interface types {
+    record user {
+        name: string,
+        email: string,
+        active: bool,
+    }
+}

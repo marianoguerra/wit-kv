@@ -3,6 +3,9 @@
 *.bin
 *.memory
 
+# Default data directory
+.wit-kv/
+
 # Example build artifacts
 examples/*/target/
 examples/*/Cargo.lock

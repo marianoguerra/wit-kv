@@ -1,0 +1,78 @@
+# wit-kv Server Configuration
+# ============================
+#
+# This file configures the wit-kv HTTP API server. Copy this file to
+# wit-kv-server.toml and adjust the settings for your environment.
+#
+# Start the server with:
+#   wit-kv-server --config wit-kv-server.toml
+
+# ------------------------------------------------------------------------------
+# Server Settings
+# ------------------------------------------------------------------------------
+# Configure the HTTP server's network binding.
+
+[server]
+# The IP address to bind the server to.
+#
+# Common values:
+#   "127.0.0.1" - Listen only on localhost (default, recommended for development)
+#   "0.0.0.0"   - Listen on all network interfaces (required for remote access)
+#
+# Security note: Only bind to 0.0.0.0 if you have proper network security
+# (firewall, reverse proxy, etc.) in place.
+bind = "127.0.0.1"
+
+# The port number to listen on.
+#
+# Default: 8080
+# Make sure this port is available and not blocked by your firewall.
+port = 8080
+
+# ------------------------------------------------------------------------------
+# Database Configuration
+# ------------------------------------------------------------------------------
+# Configure one or more wit-kv databases. Each database is a separate
+# key-value store with its own keyspaces and types.
+#
+# Databases are accessed via the API at: /{database_name}/...
+#
+# You must define at least one database.
+
+[[databases]]
+# The name used in API paths.
+#
+# Example: With name = "default", the API endpoints are:
+#   GET  /default/keyspaces
+#   POST /default/keyspaces/{keyspace}/keys/{key}
+#   etc.
+#
+# Use short, URL-friendly names (alphanumeric, hyphens, underscores).
+name = "default"
+
+# Path to the database directory.
+#
+# Can be absolute or relative to the server's working directory.
+# The directory will be created if it doesn't exist (when initialized via API).
+#
+# Examples:
+#   ".wit-kv"                  - Relative path in current directory
+#   "/var/lib/wit-kv/default"  - Absolute path for production
+#   "./data/mydb"              - Relative path in data subdirectory
+path = ".wit-kv"
+
+# ------------------------------------------------------------------------------
+# Additional Databases (Optional)
+# ------------------------------------------------------------------------------
+# You can configure multiple databases for different purposes.
+# Each [[databases]] section defines a separate database.
+
+# Example: Archive database for historical data
+# [[databases]]
+# name = "archive"
+# path = "/var/lib/wit-kv/archive"
+
+# Example: Test database for development
+# [[databases]]
+# name = "test"
+# path = "./test-data"

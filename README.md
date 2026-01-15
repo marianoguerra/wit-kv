@@ -197,7 +197,7 @@ The command-line interface provides full access to wit-kv functionality includin
 ```bash
 # Initialize store and register a type
 wit-kv init
-wit-kv set-type users --wit types.wit --type-name user
+wit-kv set-type users --wit resources/types.wit --type-name user
 
 # Store and retrieve values
 wit-kv set users alice --value '{name: "Alice", email: "alice@example.com", active: true}'
@@ -305,7 +305,7 @@ use wit_kv::kv::KvStore;
 
 // Key-value store
 let store = KvStore::init(".wit-kv")?;
-store.set_type("users", "types.wit", Some("user"), false)?;
+store.set_type("users", "resources/types.wit", Some("user"), false)?;
 store.set("users", "alice", "{name: \"Alice\", email: \"a@example.com\", active: true}")?;
 
 let value = store.get("users", "alice")?;
@@ -314,7 +314,7 @@ store.delete("users", "alice")?;
 
 // Direct canonical ABI encoding
 let mut resolve = Resolve::new();
-resolve.push_path("types.wit")?;
+resolve.push_path("resources/types.wit")?;
 
 let abi = CanonicalAbi::new(&resolve);
 let mut memory = LinearMemory::new();
