@@ -29,6 +29,54 @@ bind = "127.0.0.1"
 # Make sure this port is available and not blocked by your firewall.
 port = 8080
 
+# Optional: Path to serve static files from.
+#
+# If specified, files in this directory are served at the root path,
+# after all API endpoints. This is useful for serving a web UI.
+#
+# Example: Serve the wit-kv client UI
+# static_path = "./client/dist"
+#
+# Files are resolved relative to this path:
+#   /index.html -> ./client/dist/index.html
+#   /app.js     -> ./client/dist/app.js
+
+# ------------------------------------------------------------------------------
+# CORS Settings
+# ------------------------------------------------------------------------------
+# Configure Cross-Origin Resource Sharing (CORS).
+# By default, all cross-origin requests are DENIED for security.
+
+[cors]
+# Enable CORS. Set to true to allow cross-origin requests.
+# Default: false (all cross-origin requests are denied)
+enabled = false
+
+# Allowed origins. List of URLs that can make cross-origin requests.
+# Use ["*"] to allow all origins (NOT recommended for production).
+#
+# Examples:
+#   allow_origins = ["http://localhost:3000"]
+#   allow_origins = ["https://myapp.com", "https://admin.myapp.com"]
+#   allow_origins = ["*"]  # Allow all (use with caution)
+allow_origins = []
+
+# Allowed HTTP methods.
+# Default: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+# allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+
+# Allowed headers in requests.
+# Default: ["Content-Type", "Accept", "Authorization"]
+# allow_headers = ["Content-Type", "Accept", "Authorization"]
+
+# Allow credentials (cookies, authorization headers).
+# Default: false
+# allow_credentials = false
+
+# Max age for preflight request caching in seconds.
+# Default: 3600 (1 hour)
+# max_age = 3600
+
 # ------------------------------------------------------------------------------
 # Database Configuration
 # ------------------------------------------------------------------------------

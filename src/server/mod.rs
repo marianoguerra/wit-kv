@@ -10,7 +10,7 @@ mod error;
 mod routes;
 mod state;
 
-pub use config::{Config, DatabaseConfig, ServerConfig};
+pub use config::{Config, CorsConfig, DatabaseConfig, ServerConfig};
 pub use content::ContentFormat;
 pub use error::ApiError;
 pub use routes::router;
