@@ -14,4 +14,4 @@ pub use error::KvError;
 pub use format::BinaryExport;
 pub use store::KvStore;
 pub use types::{KeyspaceMetadata, StoredValue};
-pub use version::SemanticVersion;
+pub use version::{ParseVersionError, SemanticVersion};

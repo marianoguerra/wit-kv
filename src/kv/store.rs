@@ -25,7 +25,53 @@ const DATA_PREFIX: &str = "data_";
 /// The store will reject opening databases with a different version.
 const STORE_VERSION: u32 = 1;
 
-/// Key-value store backed by fjall.
+/// A typed key-value store backed by fjall.
+///
+/// `KvStore` provides persistent storage for WIT values, where each keyspace
+/// is associated with a specific WIT type. Values are automatically encoded
+/// using the canonical ABI format and type-checked on read/write.
+///
+/// # Example
+///
+/// ```ignore
+/// use wit_kv::KvStore;
+///
+/// // Initialize a new store
+/// let store = KvStore::init(".wit-kv")?;
+///
+/// // Register a type for a keyspace
+/// // Given a types.wit file: record point { x: s32, y: s32 }
+/// store.set_type("points", "types.wit", Some("point"), false)?;
+///
+/// // Store values using WAVE text format
+/// store.set("points", "origin", "{x: 0, y: 0}")?;
+/// store.set("points", "p1", "{x: 10, y: 20}")?;
+///
+/// // Retrieve values
+/// if let Some(value) = store.get("points", "origin")? {
+///     println!("Origin: {}", value); // "{x: 0, y: 0}"
+/// }
+///
+/// // List keys
+/// let keys = store.list("points", None, None, None, Some(10))?;
+/// for key in keys {
+///     println!("Key: {}", key);
+/// }
+///
+/// // Delete a value
+/// store.delete("points", "p1")?;
+/// ```
+///
+/// # Keyspaces
+///
+/// Each keyspace has an associated WIT type that defines the schema for values
+/// stored in that keyspace. The type is registered using [`set_type`](Self::set_type)
+/// and values are validated against this schema.
+///
+/// # Persistence
+///
+/// The store is backed by fjall, an LSM-tree based storage engine. All write
+/// operations are durably persisted before returning.
 pub struct KvStore {
     db: fjall::Database,
     meta: Keyspace,
@@ -33,7 +79,18 @@ pub struct KvStore {
 
 impl KvStore {
     /// Open an existing KV store at the given path.
-    pub fn open(path: &Path) -> Result<Self, KvError> {
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use wit_kv::KvStore;
+    ///
+    /// // Works with &str, String, &Path, PathBuf
+    /// let store = KvStore::open(".wit-kv")?;
+    /// let store = KvStore::open(PathBuf::from(".wit-kv"))?;
+    /// ```
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, KvError> {
+        let path = path.as_ref();
         if !path.exists() {
             return Err(KvError::NotInitialized(path.display().to_string()));
         }
@@ -63,7 +120,18 @@ impl KvStore {
     }
 
     /// Initialize a new KV store at the given path.
-    pub fn init(path: &Path) -> Result<Self, KvError> {
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use wit_kv::KvStore;
+    ///
+    /// // Works with &str, String, &Path, PathBuf
+    /// let store = KvStore::init(".wit-kv")?;
+    /// let store = KvStore::init(PathBuf::from("./data/store"))?;
+    /// ```
+    pub fn init(path: impl AsRef<Path>) -> Result<Self, KvError> {
+        let path = path.as_ref();
         let db = fjall::Database::builder(path).open()?;
         let meta = db.keyspace("_meta", KeyspaceCreateOptions::default)?;
 
@@ -75,13 +143,24 @@ impl KvStore {
     }
 
     /// Register a type for a keyspace.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use wit_kv::KvStore;
+    ///
+    /// let store = KvStore::init(".wit-kv")?;
+    /// store.set_type("points", "types.wit", Some("point"), false)?;
+    /// ```
     pub fn set_type(
         &self,
         keyspace: &str,
-        wit_path: &Path,
+        wit_path: impl AsRef<Path>,
         type_name: Option<&str>,
         force: bool,
     ) -> Result<KeyspaceMetadata, KvError> {
+        let wit_path = wit_path.as_ref();
+
         // Check if keyspace already exists
         let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
         if !force && self.meta.get(&key)?.is_some() {

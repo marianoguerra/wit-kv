@@ -7,7 +7,21 @@ use super::CanonicalAbiError;
 ///
 /// This struct provides a simple bump allocator for allocating data that
 /// would normally live in WebAssembly linear memory.
-#[derive(Default, Clone)]
+///
+/// # Example
+///
+/// ```ignore
+/// use wit_kv::LinearMemory;
+///
+/// // Create from various sources
+/// let mem = LinearMemory::new();
+/// let mem = LinearMemory::from(vec![1, 2, 3, 4]);
+/// let mem: LinearMemory = (&[1u8, 2, 3][..]).into();
+///
+/// // Access as slice
+/// let bytes: &[u8] = mem.as_ref();
+/// ```
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct LinearMemory {
     data: Vec<u8>,
 }
@@ -105,5 +119,52 @@ impl LinearMemory {
     /// Check if the memory is empty (no allocations made).
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+
+    /// Returns the length of the memory in bytes.
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+// Conversion traits for ergonomic API
+
+impl From<Vec<u8>> for LinearMemory {
+    fn from(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+}
+
+impl From<&[u8]> for LinearMemory {
+    fn from(data: &[u8]) -> Self {
+        Self {
+            data: data.to_vec(),
+        }
+    }
+}
+
+impl From<LinearMemory> for Vec<u8> {
+    fn from(memory: LinearMemory) -> Self {
+        memory.data
+    }
+}
+
+impl AsRef<[u8]> for LinearMemory {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl AsMut<[u8]> for LinearMemory {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+}
+
+impl std::ops::Deref for LinearMemory {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
     }
 }

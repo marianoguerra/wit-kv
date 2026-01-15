@@ -2,21 +2,48 @@
 name = "wit-kv"
 version = "0.1.0"
 edition = "2024"
+description = "A typed key-value store for WIT values using canonical ABI encoding"
+keywords = ["wasm", "wit", "component-model", "key-value", "canonical-abi"]
+categories = ["wasm", "encoding", "database"]
+
+[features]
+default = ["kv", "wasm"]
+# Enable the key-value store module (requires fjall)
+kv = ["dep:fjall", "dep:crc32fast"]
+# Enable WebAssembly component execution (requires wasmtime)
+wasm = ["dep:wasmtime", "dep:wit-component"]
+# Enable the CLI binary
+cli = ["dep:clap"]
+# Enable all features
+full = ["kv", "wasm", "cli"]
 
 [dependencies]
+# Core dependencies (always needed)
 anyhow = "1"
-clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 wit-parser = "0.244"
 wasm-wave = { version = "0.244", features = ["wit"] }
-fjall = "3.0.1"
-crc32fast = "1"
+
+# Optional: CLI support
+clap = { version = "4", features = ["derive", "env"], optional = true }
+
+# Optional: KV store support
+fjall = { version = "3.0.1", optional = true }
+crc32fast = { version = "1", optional = true }
+
+# Optional: WASM execution support
+wasmtime = { version = "40.0.1", features = ["component-model"], optional = true }
+wit-component = { version = "0.244.0", features = ["dummy-module"], optional = true }
+
+# Used in main.rs
 once_cell = "1"
-wasmtime = { version = "40.0.1", features = ["component-model"] }
-wit-component = { version = "0.244.0", features = ["dummy-module"] }
 
 [dev-dependencies]
 proptest = "1"
+
+[[bin]]
+name = "wit-kv"
+required-features = ["cli", "kv", "wasm"]
 
 [lints.clippy]
 # Disallow functions and macros that can panic

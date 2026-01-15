@@ -1,6 +1,50 @@
 //! Semantic versioning support for WIT type versions.
 
+use std::fmt;
+use std::str::FromStr;
+
+/// Error returned when parsing a [`SemanticVersion`] from a string fails.
+///
+/// # Example
+///
+/// ```ignore
+/// use wit_kv::SemanticVersion;
+/// use std::str::FromStr;
+///
+/// let err = SemanticVersion::from_str("invalid").unwrap_err();
+/// println!("Parse error: {}", err);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseVersionError {
+    input: String,
+    reason: &'static str,
+}
+
+impl fmt::Display for ParseVersionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid version '{}': {}", self.input, self.reason)
+    }
+}
+
+impl std::error::Error for ParseVersionError {}
+
 /// Semantic version following WIT package versioning convention.
+///
+/// # Example
+///
+/// ```ignore
+/// use wit_kv::SemanticVersion;
+/// use std::str::FromStr;
+///
+/// // Parse from string
+/// let v: SemanticVersion = "1.2.3".parse()?;
+///
+/// // Create directly
+/// let v = SemanticVersion::new(1, 2, 3);
+///
+/// // Display
+/// println!("Version: {}", v); // "1.2.3"
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SemanticVersion {
     pub major: u32,
@@ -65,6 +109,74 @@ impl Default for SemanticVersion {
     }
 }
 
+impl FromStr for SemanticVersion {
+    type Err = ParseVersionError;
+
+    /// Parse a semantic version from a string.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use wit_kv::SemanticVersion;
+    /// use std::str::FromStr;
+    ///
+    /// let v: SemanticVersion = "1.2.3".parse()?;
+    /// assert_eq!(v, SemanticVersion::new(1, 2, 3));
+    ///
+    /// // Also works with from_str
+    /// let v = SemanticVersion::from_str("0.1.0")?;
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split('.');
+
+        let major = parts
+            .next()
+            .ok_or_else(|| ParseVersionError {
+                input: s.to_string(),
+                reason: "missing major version",
+            })?
+            .parse()
+            .map_err(|_| ParseVersionError {
+                input: s.to_string(),
+                reason: "invalid major version number",
+            })?;
+
+        let minor = parts
+            .next()
+            .ok_or_else(|| ParseVersionError {
+                input: s.to_string(),
+                reason: "missing minor version",
+            })?
+            .parse()
+            .map_err(|_| ParseVersionError {
+                input: s.to_string(),
+                reason: "invalid minor version number",
+            })?;
+
+        let patch = parts
+            .next()
+            .ok_or_else(|| ParseVersionError {
+                input: s.to_string(),
+                reason: "missing patch version",
+            })?
+            .parse()
+            .map_err(|_| ParseVersionError {
+                input: s.to_string(),
+                reason: "invalid patch version number",
+            })?;
+
+        // Ensure no extra parts
+        if parts.next().is_some() {
+            return Err(ParseVersionError {
+                input: s.to_string(),
+                reason: "too many version components",
+            });
+        }
+
+        Ok(Self { major, minor, patch })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,5 +225,42 @@ mod tests {
         // Different major versions are incompatible
         assert!(!v200.can_read_from(&v100));
         assert!(!v100.can_read_from(&v200));
+    }
+
+    #[test]
+    fn test_from_str() {
+        // Valid versions
+        assert_eq!(
+            "0.1.0".parse::<SemanticVersion>().ok(),
+            Some(SemanticVersion::new(0, 1, 0))
+        );
+        assert_eq!(
+            "1.2.3".parse::<SemanticVersion>().ok(),
+            Some(SemanticVersion::new(1, 2, 3))
+        );
+        assert_eq!(
+            "10.20.30".parse::<SemanticVersion>().ok(),
+            Some(SemanticVersion::new(10, 20, 30))
+        );
+
+        // Invalid versions
+        assert!("invalid".parse::<SemanticVersion>().is_err());
+        assert!("1.2".parse::<SemanticVersion>().is_err());
+        assert!("1".parse::<SemanticVersion>().is_err());
+        assert!("1.2.3.4".parse::<SemanticVersion>().is_err());
+        assert!("a.b.c".parse::<SemanticVersion>().is_err());
+        assert!("-1.0.0".parse::<SemanticVersion>().is_err());
+    }
+
+    #[test]
+    fn test_from_str_error_messages() {
+        let err = "invalid".parse::<SemanticVersion>().unwrap_err();
+        assert!(err.to_string().contains("invalid"));
+
+        let err = "1.2".parse::<SemanticVersion>().unwrap_err();
+        assert!(err.to_string().contains("missing patch"));
+
+        let err = "1.2.3.4".parse::<SemanticVersion>().unwrap_err();
+        assert!(err.to_string().contains("too many"));
     }
 }

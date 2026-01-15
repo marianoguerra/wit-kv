@@ -16,7 +16,7 @@
 //! let result = runner.call_filter(&point_val)?;
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use wasmtime::component::types;
 use wasmtime::component::{Component, Func, Instance, Linker, Val};
@@ -392,10 +392,139 @@ pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
     }
 }
 
+/// Builder for creating [`TypedRunner`] instances with a fluent API.
+///
+/// # Example
+///
+/// ```ignore
+/// use wit_kv::TypedRunner;
+///
+/// // Simple usage with same input/output type
+/// let runner = TypedRunner::builder()
+///     .component("filter.wasm")
+///     .wit("types.wit")
+///     .input_type("point")
+///     .build()?;
+///
+/// // With different input and output types
+/// let runner = TypedRunner::builder()
+///     .component("transform.wasm")
+///     .wit("types.wit")
+///     .input_type("point")
+///     .output_type("magnitude")
+///     .build()?;
+/// ```
+#[derive(Default)]
+pub struct TypedRunnerBuilder {
+    component_path: Option<PathBuf>,
+    wit_path: Option<PathBuf>,
+    input_type_name: Option<String>,
+    output_type_name: Option<String>,
+}
+
+impl TypedRunnerBuilder {
+    /// Create a new builder with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the path to the WebAssembly component file.
+    ///
+    /// This is required and must point to a valid `.wasm` component file.
+    pub fn component(mut self, path: impl AsRef<Path>) -> Self {
+        self.component_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the path to the WIT file defining the types.
+    ///
+    /// This is required and must point to a valid `.wit` file containing
+    /// the type definitions for the component.
+    pub fn wit(mut self, path: impl AsRef<Path>) -> Self {
+        self.wit_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the name of the input type.
+    ///
+    /// This is required and must match a type name defined in the WIT file.
+    pub fn input_type(mut self, name: impl Into<String>) -> Self {
+        self.input_type_name = Some(name.into());
+        self
+    }
+
+    /// Set the name of the output type.
+    ///
+    /// If not specified, defaults to the input type name. This is useful
+    /// for transformations that change the type (e.g., `point` -> `magnitude`).
+    pub fn output_type(mut self, name: impl Into<String>) -> Self {
+        self.output_type_name = Some(name.into());
+        self
+    }
+
+    /// Build the [`TypedRunner`] with the configured options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Required fields (component, wit, input_type) are not set
+    /// - The component file cannot be loaded
+    /// - The WIT file cannot be parsed
+    /// - The specified types are not found in the WIT file
+    pub fn build(self) -> Result<TypedRunner, WasmError> {
+        let component_path = self.component_path.ok_or_else(|| WasmError::TypeMismatch {
+            keyspace_type: "component path is required".to_string(),
+        })?;
+
+        let wit_path = self.wit_path.ok_or_else(|| WasmError::TypeMismatch {
+            keyspace_type: "WIT path is required".to_string(),
+        })?;
+
+        let input_type_name = self.input_type_name.ok_or_else(|| WasmError::TypeMismatch {
+            keyspace_type: "input type name is required".to_string(),
+        })?;
+
+        TypedRunner::new(
+            &component_path,
+            &wit_path,
+            &input_type_name,
+            self.output_type_name.as_deref(),
+        )
+    }
+}
+
 /// Runner for typed WebAssembly Components.
 ///
 /// This runner works with actual WIT types, converting between storage format
 /// and typed `Val` values.
+///
+/// # Example
+///
+/// Using the builder pattern (recommended):
+///
+/// ```ignore
+/// use wit_kv::TypedRunner;
+///
+/// let runner = TypedRunner::builder()
+///     .component("filter.wasm")
+///     .wit("types.wit")
+///     .input_type("point")
+///     .build()?;
+///
+/// // Use the runner for filter/transform operations
+/// let passes = runner.call_filter(&stored_value)?;
+/// ```
+///
+/// Using the direct constructor:
+///
+/// ```ignore
+/// let runner = TypedRunner::new(
+///     Path::new("filter.wasm"),
+///     Path::new("types.wit"),
+///     "point",
+///     None,
+/// )?;
+/// ```
 pub struct TypedRunner {
     engine: Engine,
     store: Store<()>,
@@ -406,7 +535,27 @@ pub struct TypedRunner {
 }
 
 impl TypedRunner {
+    /// Create a builder for constructing a TypedRunner with a fluent API.
+    ///
+    /// This is the recommended way to create a TypedRunner as it provides
+    /// better ergonomics and clearer intent.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let runner = TypedRunner::builder()
+    ///     .component("filter.wasm")
+    ///     .wit("types.wit")
+    ///     .input_type("point")
+    ///     .build()?;
+    /// ```
+    pub fn builder() -> TypedRunnerBuilder {
+        TypedRunnerBuilder::new()
+    }
+
     /// Create a new TypedRunner by loading a component.
+    ///
+    /// For a more ergonomic API, consider using [`TypedRunner::builder()`] instead.
     ///
     /// # Arguments
     /// * `module_path` - Path to the WASM component
@@ -414,8 +563,8 @@ impl TypedRunner {
     /// * `input_type_name` - Name of the input type (e.g., "point")
     /// * `output_type_name` - Name of the output type (defaults to input type)
     pub fn new(
-        module_path: &Path,
-        wit_path: &Path,
+        module_path: impl AsRef<Path>,
+        wit_path: impl AsRef<Path>,
         input_type_name: &str,
         output_type_name: Option<&str>,
     ) -> Result<Self, WasmError> {
