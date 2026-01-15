@@ -1,49 +1,33 @@
 # wit-kv
 
-A typed key-value store and CLI tool for working with [WIT](https://component-model.bytecodealliance.org/design/wit.html) (WebAssembly Interface Types) values using the canonical ABI.
+A typed key-value store for [WIT](https://component-model.bytecodealliance.org/design/wit.html) (WebAssembly Interface Types) values using the canonical ABI.
 
-## Features
+wit-kv enforces schemas at the storage layer: each keyspace is bound to a WIT type, and values are validated on every read and write. This brings the type safety of the WebAssembly Component Model to persistent storage, enabling cross-language interoperability—any language that implements the canonical ABI can read and write your data.
 
-- **Typed storage** — Store values with WIT schema enforcement per keyspace
-- **Canonical ABI encoding** — Convert between human-readable WAVE text and binary format
-- **WebAssembly map/reduce** — Execute Wasm components to filter, transform, and aggregate data
-- **Schema versioning** — Track type versions and detect incompatibilities
-- **Cross-language interop** — Any language implementing canonical ABI can read/write data
+**Core capabilities:**
 
-## Quick Start
+- **Typed storage** — Schema enforcement per keyspace with semantic versioning
+- **Three interfaces** — HTTP API server, command-line tool, and Rust library
+- **Canonical ABI encoding** — Binary format compatible with WebAssembly components
+- **WASM map/reduce** — Execute components directly on stored data with full type safety
+- **WAVE text format** — Human-readable syntax for all WIT types
 
-```bash
-# Install
-cargo install --path .
-
-# Initialize store and register a type
-wit-kv init
-wit-kv set-type users --wit types.wit --type-name user
-
-# Store and retrieve values (WAVE syntax)
-wit-kv set users alice --value '{name: "Alice", email: "alice@example.com", active: true}'
-wit-kv get users alice
-# {name: "Alice", email: "alice@example.com", active: true}
-```
+---
 
 ## Installation
 
 ```bash
-cargo install --path .
+# Install CLI and server
+cargo install --path . --features full
+
+# Or build specific binaries
+cargo build --release --features cli    # CLI only
+cargo build --release --features server # Server only
 ```
 
-Or build from source:
+## Defining Types
 
-```bash
-cargo build --release
-# Binary at ./target/release/wit-kv
-```
-
-## Usage Guide
-
-### Working with Types
-
-Define your types in a WIT file:
+Types are defined using WIT syntax. Create a `.wit` file with your schema:
 
 ```wit
 // types.wit
@@ -55,183 +39,323 @@ interface types {
         email: string,
         active: bool,
     }
+
+    record point {
+        x: s32,
+        y: s32,
+    }
+
+    variant shape {
+        circle(u32),
+        rectangle(point),
+    }
+
+    enum color { red, green, blue }
+
+    flags permissions { read, write, execute }
 }
 ```
 
-Register types for keyspaces:
+Values use [WAVE syntax](https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasm-wave):
 
-```bash
-wit-kv set-type users --wit types.wit --type-name user
-wit-kv get-type users          # Show WIT definition
-wit-kv list-types              # List all keyspaces
-wit-kv delete-type users       # Remove type (add --delete-data to remove values)
+```
+# Records
+{name: "Alice", email: "alice@example.com", active: true}
+
+# Variants
+circle(50)
+rectangle({x: 10, y: 20})
+
+# Enums
+green
+
+# Flags
+{read, write}
+
+# Lists
+[1, 2, 3]
+
+# Options
+some("value")
+none
 ```
 
-### Storing and Retrieving Values
+---
+
+## Server
+
+The HTTP API server provides a RESTful interface to wit-kv with content negotiation for WAVE text and binary formats.
+
+### Running the Server
 
 ```bash
-# Store values using WAVE syntax
-wit-kv set users alice --value '{name: "Alice", email: "alice@example.com", active: true}'
-echo '{name: "Bob", email: "bob@example.com", active: false}' > bob.wave
-wit-kv set users bob --file bob.wave    # Or read from file
+# Create configuration file
+cat > wit-kv-server.toml << 'EOF'
+[server]
+bind = "127.0.0.1"
+port = 8080
 
-# Retrieve values
-wit-kv get users alice                  # WAVE text output
-wit-kv get users alice --binary         # Binary export format
+[[databases]]
+name = "default"
+path = ".wit-kv"
+EOF
+
+# Start server
+wit-kv-server --config wit-kv-server.toml
+```
+
+### API Endpoints
+
+Base path: `/api/v1`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| **Types** |
+| GET | `/db/{db}/types` | List all types |
+| GET | `/db/{db}/types/{keyspace}` | Get type metadata |
+| PUT | `/db/{db}/types/{keyspace}?type_name=T` | Register type |
+| DELETE | `/db/{db}/types/{keyspace}?delete_data=bool` | Delete type |
+| **Key-Value** |
+| GET | `/db/{db}/kv/{keyspace}?prefix=&limit=` | List keys |
+| GET | `/db/{db}/kv/{keyspace}/{key}` | Get value |
+| PUT | `/db/{db}/kv/{keyspace}/{key}` | Set value |
+| DELETE | `/db/{db}/kv/{keyspace}/{key}` | Delete value |
+
+### Content Negotiation
+
+**Request Content-Type:**
+- `application/x-wasm-wave` or `text/plain` — WAVE text (default)
+- `application/octet-stream` — Binary canonical ABI
+
+**Response Accept header:**
+- `application/x-wasm-wave` — WAVE text (default)
+- `application/octet-stream` — Binary format
+
+### Example Usage
+
+```bash
+# Register a type
+curl -X PUT "http://localhost:8080/api/v1/db/default/types/points?type_name=point" \
+  -H "Content-Type: text/plain" \
+  -d 'package app:types;
+interface types {
+  record point { x: s32, y: s32 }
+}'
+
+# Store a value
+curl -X PUT "http://localhost:8080/api/v1/db/default/kv/points/origin" \
+  -H "Content-Type: application/x-wasm-wave" \
+  -d '{x: 0, y: 0}'
+
+# Retrieve as WAVE text
+curl "http://localhost:8080/api/v1/db/default/kv/points/origin"
+# {x: 0, y: 0}
+
+# Retrieve as binary
+curl "http://localhost:8080/api/v1/db/default/kv/points/origin" \
+  -H "Accept: application/octet-stream" -o point.bin
+
+# List keys
+curl "http://localhost:8080/api/v1/db/default/kv/points?prefix=o&limit=10"
+# ["origin"]
+```
+
+### TypeScript Client
+
+A TypeScript client is included in the `client/` directory:
+
+```typescript
+import { WitKvClient } from 'wit-kv-client';
+
+const client = new WitKvClient('http://localhost:8080');
+
+// Type management
+await client.setType('points', witDefinition, { typeName: 'point' });
+const types = await client.listTypes();
+
+// Key-value operations
+await client.set('points', 'p1', '{x: 10, y: 20}');
+const value = await client.get('points', 'p1');           // WAVE text
+const binary = await client.get('points', 'p1', { format: 'binary' }); // ArrayBuffer
+const keys = await client.list('points', { prefix: 'p', limit: 100 });
+await client.delete('points', 'p1');
+```
+
+```bash
+cd client && npm install && npm run build
+```
+
+---
+
+## CLI
+
+The command-line interface provides full access to wit-kv functionality including map/reduce operations.
+
+### Quick Start
+
+```bash
+# Initialize store and register a type
+wit-kv init
+wit-kv set-type users --wit types.wit --type-name user
+
+# Store and retrieve values
+wit-kv set users alice --value '{name: "Alice", email: "alice@example.com", active: true}'
+wit-kv get users alice
+# {name: "Alice", email: "alice@example.com", active: true}
 
 # List and delete
-wit-kv list users                       # All keys
-wit-kv list users --prefix a            # Keys starting with "a"
+wit-kv list users --prefix a
 wit-kv delete users alice
 ```
 
-### Encoding and Decoding
+### Command Reference
 
-Convert between WAVE text and canonical ABI binary without using the store:
+**Store Management**
 
-```bash
-# Lower: WAVE text → canonical ABI binary
-wit-kv lower --wit types.wit -t user \
-  --value '{name: "Alice", email: "alice@example.com", active: true}' \
-  --output alice.bin
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize a new store |
+| `set-type <keyspace> --wit <file> -t <type>` | Register a WIT type |
+| `get-type <keyspace>` | Show type definition |
+| `delete-type <keyspace> [--delete-data]` | Remove type |
+| `list-types` | List all keyspaces |
 
-# Lift: canonical ABI binary → WAVE text
-wit-kv lift --wit types.wit -t user --input alice.bin
-# {name: "Alice", email: "alice@example.com", active: true}
-```
+**Key-Value Operations**
+
+| Command | Description |
+|---------|-------------|
+| `set <keyspace> <key> --value <wave>` | Store a value |
+| `set <keyspace> <key> --file <path>` | Store from file |
+| `get <keyspace> <key>` | Retrieve as WAVE text |
+| `get <keyspace> <key> --binary` | Retrieve as binary |
+| `delete <keyspace> <key>` | Delete a value |
+| `list <keyspace> [--prefix P] [--limit N]` | List keys |
+
+**Encoding (without store)**
+
+| Command | Description |
+|---------|-------------|
+| `lower --wit <file> -t <type> --value <wave> -o <file>` | WAVE → binary |
+| `lift --wit <file> -t <type> --input <file>` | Binary → WAVE |
+
+**Environment:** `WIT_KV_PATH` sets the store directory (default: `.wit-kv/`)
 
 ### Map/Reduce Operations
 
-Execute WebAssembly Components to filter, transform, and aggregate stored values.
-
-Components receive actual WIT types with direct field access:
+Execute WebAssembly components to filter, transform, and aggregate stored data. Components receive actual WIT types with direct field access—no binary parsing required.
 
 ```bash
-# Setup: create keyspaces and add sample data
+# Setup test data
 wit-kv set-type points --wit ./examples/point-filter/wit/map.wit -t point
 wit-kv set points p1 --value '{x: 3, y: 4}'
 wit-kv set points p2 --value '{x: 10, y: 20}'
 
-wit-kv set-type users --wit ./examples/sum-scores/wit/reduce.wit -t person
-wit-kv set users alice --value '{age: 30, score: 100}'
-wit-kv set users bob --value '{age: 25, score: 150}'
-wit-kv set users carol --value '{age: 35, score: 55}'
-
-# Map: filter and transform points (same type in/out)
+# Map: filter points (same type in/out)
 wit-kv map points \
   --module ./examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
   --module-wit ./examples/point-filter/wit/map.wit \
   --input-type point
 
-# Map: transform to different type (T -> T1)
+# Map: transform to different type (Point → Magnitude)
 wit-kv map points \
   --module ./examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
   --module-wit ./examples/point-to-magnitude/wit/map.wit \
   --input-type point \
   --output-type magnitude
-# Input:  {x: 3, y: 4}
-# Output: {distance-squared: 25, quadrant: 1}
+# {distance-squared: 25, quadrant: 1}
 
-# Reduce: aggregate with typed state
+# Reduce: aggregate values
 wit-kv reduce users \
   --module ./examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
   --module-wit ./examples/sum-scores/wit/reduce.wit \
   --input-type person \
   --state-type total
-# Output: {sum: 305, count: 3}
+# {sum: 305, count: 3}
 ```
 
-See [examples/](examples/) for sample components.
+See `examples/` for sample components.
 
-## CLI Reference
+---
 
-### Store Commands
+## Library
 
-| Command | Description |
+The Rust library provides direct access to the canonical ABI encoder and key-value store.
+
+### Feature Flags
+
+```toml
+[dependencies]
+wit-kv = { version = "0.1", features = ["kv"] }
+```
+
+| Feature | Description |
 |---------|-------------|
-| `init` | Initialize a new store |
-| `set-type <keyspace> --wit <file> -t <type>` | Register a WIT type for a keyspace |
-| `get-type <keyspace>` | Show the WIT definition for a keyspace |
-| `delete-type <keyspace>` | Remove a keyspace type |
-| `list-types` | List all registered keyspaces and their types |
-| `set <keyspace> <key> --value <wave>` | Store a value |
-| `get <keyspace> <key>` | Retrieve a value |
-| `delete <keyspace> <key>` | Delete a value |
-| `list <keyspace>` | List keys in a keyspace |
+| `kv` | Key-value store (default) |
+| `wasm` | WebAssembly component execution (default) |
+| `cli` | Command-line binary |
+| `server` | HTTP API server |
+| `full` | All features |
 
-**Flags:** `--path <dir>` (store location), `--force` (overwrite type), `--delete-data` (with delete-type), `--binary` (binary output), `--file <path>` (read value from file), `--prefix`/`--start`/`--end`/`--limit` (for list)
+### API Usage
 
-### Encoding Commands
+```rust
+use wit_kv::{CanonicalAbi, LinearMemory, Resolve};
+use wit_kv::kv::KvStore;
 
-| Command | Description |
-|---------|-------------|
-| `lower --wit <file> -t <type> --value <wave> -o <file>` | WAVE text → canonical ABI binary |
-| `lift --wit <file> -t <type> --input <file>` | Canonical ABI binary → WAVE text |
+// Key-value store
+let store = KvStore::init(".wit-kv")?;
+store.set_type("users", "types.wit", Some("user"), false)?;
+store.set("users", "alice", "{name: \"Alice\", email: \"a@example.com\", active: true}")?;
 
-### Map/Reduce Commands
+let value = store.get("users", "alice")?;
+let keys = store.list("users", Some("a"), None, None, Some(100))?;
+store.delete("users", "alice")?;
 
-| Command | Description |
-|---------|-------------|
-| `map <keyspace> --module <wasm> --module-wit <wit> --input-type <type> [--output-type <type>]` | Typed map operation (output-type enables T -> T1) |
-| `reduce <keyspace> --module <wasm> --module-wit <wit> --input-type <type> --state-type <type>` | Typed reduce operation |
+// Direct canonical ABI encoding
+let mut resolve = Resolve::new();
+resolve.push_path("types.wit")?;
 
-### Environment Variables
+let abi = CanonicalAbi::new(&resolve);
+let mut memory = LinearMemory::new();
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `WIT_KV_PATH` | Store directory path | `.wit-kv/` |
+// Encode WAVE value to binary
+let bytes = abi.lower_with_memory(&value, &wit_type, &wave_type, &mut memory)?;
 
-## Examples
-
-### Complex WIT Types
-
-```wit
-// shapes.wit
-package demo:shapes;
-
-interface types {
-    record point { x: s32, y: s32 }
-
-    variant shape {
-        circle(u32),
-        rectangle(point),
-        triangle(tuple<point, point, point>),
-    }
-
-    flags permissions { read, write, execute }
-
-    enum color { red, green, blue }
-}
+// Decode binary to WAVE value
+let (decoded, _) = abi.lift_with_memory(&bytes, &wit_type, &wave_type, &memory)?;
 ```
 
-```bash
-# Enums
-wit-kv lower --wit shapes.wit -t color --value 'green' -o color.bin
+### Project Structure
 
-# Variants
-wit-kv lower --wit shapes.wit -t shape --value 'circle(50)' -o shape.bin
-wit-kv lower --wit shapes.wit -t shape --value 'rectangle({x: 10, y: 20})' -o rect.bin
-
-# Flags
-wit-kv lower --wit shapes.wit -t permissions --value '{read, write}' -o perms.bin
-
-# Records
-wit-kv lower --wit shapes.wit -t point --value '{x: -5, y: 100}' -o point.bin
+```
+wit-kv/
+├── src/
+│   ├── lib.rs              # Library exports
+│   ├── main.rs             # CLI entry point
+│   ├── abi/                # Canonical ABI implementation
+│   │   ├── mod.rs          # CanonicalAbi, EncodedValue
+│   │   ├── memory.rs       # LinearMemory allocator
+│   │   ├── wave_lower.rs   # WAVE → binary
+│   │   └── wave_lift.rs    # Binary → WAVE
+│   ├── kv/                 # Key-value store
+│   │   ├── store.rs        # KvStore implementation
+│   │   ├── types.rs        # StoredValue, KeyspaceMetadata
+│   │   └── format.rs       # WIT-based binary encoding
+│   ├── wasm/               # WebAssembly execution
+│   │   └── typed_runner.rs # TypedRunner for map/reduce
+│   ├── server/             # HTTP API server
+│   │   ├── config.rs       # TOML configuration
+│   │   ├── routes/         # API handlers
+│   │   └── content.rs      # Content negotiation
+│   └── bin/
+│       └── wit-kv-server.rs
+├── client/                 # TypeScript client
+├── examples/               # Map/reduce component examples
+└── kv.wit                  # Storage format types
 ```
 
-### Reading Values from Files
-
-```bash
-echo '{name: "Charlie", email: "charlie@example.com", active: true}' > charlie.wave
-wit-kv set users charlie --file charlie.wave
-```
-
-### Binary Output for Pipelines
-
-```bash
-# Output as binary-export format (can be decoded with kv.wit types)
-wit-kv get users alice --binary > alice.bin
-```
+---
 
 ## Technical Design
 
@@ -239,36 +363,38 @@ wit-kv get users alice --binary > alice.bin
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         wit-kv CLI                          │
+│              wit-kv-server (HTTP API)                       │
+│              wit-kv (CLI)                                   │
 ├─────────────────────────────────────────────────────────────┤
-│  lower/lift commands  │  KV store commands  │  map/reduce   │
-├───────────────────────┴─────────────────────┴───────────────┤
-│                    CanonicalAbi encoder                     │
-│    Text I/O: lower_with_memory / lift_with_memory (WAVE)    │
-│    Hot path: lower_from_val / lift_to_val (wasmtime::Val)   │
+│                    KvStore                                  │
+│         (typed keyspaces, schema versioning)                │
 ├─────────────────────────────────────────────────────────────┤
-│  wit-parser (WIT types)  │  wasm-wave (WAVE text format)    │
-├──────────────────────────┴──────────────────────────────────┤
-│         fjall (persistent KV)  │  wasmtime (Wasm runtime)   │
+│                  CanonicalAbi encoder                       │
+│    WAVE text ←→ canonical ABI binary ←→ wasmtime::Val       │
+├─────────────────────────────────────────────────────────────┤
+│  wit-parser     │  wasm-wave      │  wasmtime               │
+│  (WIT types)    │  (WAVE format)  │  (Wasm runtime)         │
+├─────────────────┴─────────────────┴─────────────────────────┤
+│                    fjall (persistent KV)                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Canonical ABI Encoding
 
-The [canonical ABI](https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md) defines how WIT types are laid out in linear memory.
+The [canonical ABI](https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md) defines binary layout for WIT types.
 
-**Fixed-size types** are encoded directly with proper alignment:
+**Fixed-size types** encode directly with alignment:
 
 ```
 record point { x: u32, y: u32 }
 
-Binary layout (8 bytes):
+Binary (8 bytes):
 ┌────────────┬────────────┐
 │ x: u32 (4) │ y: u32 (4) │
 └────────────┴────────────┘
 ```
 
-**Variable-length types** (strings, lists) use a pointer+length pair in the main buffer, with data in linear memory:
+**Variable-length types** use pointer+length with data in linear memory:
 
 ```
 record message { text: string }
@@ -284,124 +410,59 @@ Main buffer (8 bytes):         Linear memory:
 Defined in `kv.wit`:
 
 ```wit
-record semantic-version {
-    major: u32,
-    minor: u32,
-    patch: u32,
-}
-
 record stored-value {
-    version: u8,                      // Format version for migrations
+    version: u8,                      // Format version
     type-version: semantic-version,   // Schema version at write time
-    value: list<u8>,                  // Canonical ABI encoded bytes
-    memory: option<list<u8>>,         // Linear memory (for strings/lists)
+    value: list<u8>,                  // Canonical ABI bytes
+    memory: option<list<u8>>,         // Linear memory for strings/lists
 }
 
 record keyspace-metadata {
     name: string,
-    qualified-name: string,           // e.g., "myapp:types/types#user"
-    wit-definition: string,           // Full WIT source
+    qualified-name: string,           // "myapp:types/types#user"
+    wit-definition: string,
     type-name: string,
-    type-version: semantic-version,   // Semantic version (0.1.0, 1.2.3, etc.)
-    type-hash: u32,                   // CRC32 of WIT definition
+    type-version: semantic-version,
+    type-hash: u32,
     created-at: u64,
-}
-
-record binary-export {
-    value: list<u8>,
-    memory: option<list<u8>>,
 }
 ```
 
-Type versions use semantic versioning with compatibility rules:
-- Pre-1.0 (`0.x.y`): Only patch-level changes are compatible (e.g., `0.1.1` can read `0.1.0`)
-- Post-1.0: Same major version with higher minor/patch can read older versions
+**Version compatibility:**
+- Pre-1.0 (`0.x.y`): Patch-level compatible (`0.1.1` reads `0.1.0`)
+- Post-1.0: Same major, higher minor/patch reads older
 
 ### Type Support
 
 | WIT Type | Status | Encoding |
 |----------|--------|----------|
-| `bool` | Full | 1 byte (0 or 1) |
-| `u8`/`s8` | Full | 1 byte |
-| `u16`/`s16` | Full | 2 bytes, aligned |
-| `u32`/`s32` | Full | 4 bytes, aligned |
-| `u64`/`s64` | Full | 8 bytes, aligned |
-| `f32`/`f64` | Full | IEEE 754 |
-| `char` | Full | Unicode scalar (4 bytes) |
-| `string` | Full | ptr+len, data in memory |
-| `list<T>` | Full | ptr+len, elements in memory |
-| `record` | Full | Fields with alignment padding |
-| `tuple` | Full | Same as record |
-| `variant` | Full | Discriminant + payload |
-| `enum` | Full | Discriminant only |
-| `option<T>` | Full | Discriminant + optional payload |
-| `result<T, E>` | Full | Discriminant + ok/err payload |
-| `flags` | Full | Bitfield |
-| `resource` | No | Requires runtime context |
-| `stream`/`future` | No | Requires async runtime |
+| `bool` | ✓ | 1 byte |
+| `u8`/`s8` | ✓ | 1 byte |
+| `u16`/`s16` | ✓ | 2 bytes |
+| `u32`/`s32` | ✓ | 4 bytes |
+| `u64`/`s64` | ✓ | 8 bytes |
+| `f32`/`f64` | ✓ | IEEE 754 |
+| `char` | ✓ | 4 bytes |
+| `string` | ✓ | ptr+len |
+| `list<T>` | ✓ | ptr+len |
+| `record` | ✓ | Aligned fields |
+| `tuple` | ✓ | Same as record |
+| `variant` | ✓ | Discriminant + payload |
+| `enum` | ✓ | Discriminant |
+| `option<T>` | ✓ | Discriminant + payload |
+| `result<T,E>` | ✓ | Discriminant + payload |
+| `flags` | ✓ | Bitfield |
+| `resource` | ✗ | Requires runtime |
+| `stream`/`future` | ✗ | Requires async |
+
+---
 
 ## Development
 
-### Project Structure
-
-```
-wit-kv/
-├── src/
-│   ├── main.rs           # CLI entry point
-│   ├── lib.rs            # Library exports
-│   ├── abi.rs            # Canonical ABI implementation
-│   ├── kv/               # Key-value store module
-│   │   ├── store.rs      # KvStore implementation
-│   │   ├── types.rs      # StoredValue, KeyspaceMetadata
-│   │   └── format.rs     # WIT-based binary encoding
-│   └── wasm/             # WebAssembly execution module
-│       ├── typed_runner.rs # TypedRunner (actual WIT types)
-│       └── error.rs      # WasmError types
-├── examples/
-│   ├── point-filter/       # Typed map: Point -> Point (filter by radius)
-│   ├── person-filter/      # Typed map: Person -> Person (filter by score)
-│   ├── point-to-magnitude/ # Typed map: Point -> Magnitude (T -> T1 transformation)
-│   └── sum-scores/         # Typed reduce: Person -> Total (sum aggregation)
-├── kv.wit                # Storage format types
-└── test.wit              # Test type definitions
-```
-
-### Library Usage
-
-```rust
-use wit_kv::{CanonicalAbi, LinearMemory, Resolve, Value};
-use wit_kv::kv::KvStore;
-
-// Direct encoding/decoding
-let mut resolve = Resolve::new();
-resolve.push_path("types.wit")?;
-
-let abi = CanonicalAbi::new(&resolve);
-let mut memory = LinearMemory::new();
-
-let bytes = abi.lower_with_memory(&value, &wit_type, &wave_type, &mut memory)?;
-let (lifted, _) = abi.lift_with_memory(&bytes, &wit_type, &wave_type, &memory)?;
-
-// Key-value store
-let store = KvStore::open(".wit-kv")?;
-store.set("users", "alice", "{name: \"Alice\", ...}")?;
-let value = store.get("users", "alice")?;
-```
-
-### Testing
-
 ```bash
 cargo test              # Unit and integration tests
-just smoke-test         # Full suite: tests + usage demo + map/reduce
-just test-errors        # Error handling verification
-./scripts/usage-example.sh  # Interactive CLI demonstration
+just smoke-test         # Full suite with map/reduce
 ```
-
-**Test coverage:**
-- Unit tests: Roundtrip encoding for all WIT types
-- Property tests: Randomized roundtrip verification
-- Reference tests: Wasmtime-based canonical ABI validation
-- Smoke tests: End-to-end CLI verification
 
 ## License
 
