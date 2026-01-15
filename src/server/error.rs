@@ -8,6 +8,7 @@ use axum::{
 use serde::Serialize;
 
 use crate::kv::KvError;
+use crate::wasm::WasmError;
 
 /// API error response body.
 #[derive(Debug, Serialize)]
@@ -118,6 +119,41 @@ impl ApiError {
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", message)
     }
+
+    /// Invalid multipart request error.
+    pub fn invalid_multipart(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "INVALID_MULTIPART", message)
+    }
+
+    /// Missing multipart field error.
+    pub fn missing_field(field_name: &str) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "MISSING_FIELD",
+            format!("Required field '{}' is missing from the request", field_name),
+        )
+        .with_details(serde_json::json!({ "field": field_name }))
+    }
+
+    /// WASM module error.
+    pub fn wasm_error(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "WASM_ERROR", message)
+    }
+
+    /// Invalid WIT definition error.
+    pub fn invalid_wit(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "INVALID_WIT", message)
+    }
+
+    /// Module not found error (for future module registry).
+    pub fn module_not_found(id: &str) -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "MODULE_NOT_FOUND",
+            format!("Module '{}' not found", id),
+        )
+        .with_details(serde_json::json!({ "module_id": id }))
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -174,6 +210,39 @@ impl From<KvError> for ApiError {
                 format!("Database at '{}' is not initialized", path),
             ),
             KvError::InvalidFormat(msg) => Self::invalid_binary_format(msg.clone()),
+            _ => Self::internal(err.to_string()),
+        }
+    }
+}
+
+impl From<WasmError> for ApiError {
+    fn from(err: WasmError) -> Self {
+        match &err {
+            WasmError::FunctionNotFound(name) => Self::wasm_error(format!(
+                "Required function '{}' not found in module. Map modules must export 'filter' and 'transform'; reduce modules must export 'init-state' and 'reduce'.",
+                name
+            )),
+            WasmError::InvalidSignature { name, expected, actual } => Self::wasm_error(format!(
+                "Function '{}' has wrong signature: expected {}, got {}",
+                name, expected, actual
+            )),
+            WasmError::InvalidReturnType { expected } => {
+                Self::wasm_error(format!("Invalid return type: expected {}", expected))
+            }
+            WasmError::Trap(msg) => Self::wasm_error(format!("WASM execution error: {}", msg)),
+            WasmError::TypeMismatch { keyspace_type } => Self::wasm_error(format!(
+                "Type mismatch: {}",
+                keyspace_type
+            )),
+            WasmError::ModuleLoad(io_err) => {
+                Self::wasm_error(format!("Failed to load module: {}", io_err))
+            }
+            WasmError::Wasmtime(wt_err) => {
+                Self::wasm_error(format!("WASM runtime error: {}", wt_err))
+            }
+            WasmError::CanonicalAbi(abi_err) => {
+                Self::wasm_error(format!("Canonical ABI error: {}", abi_err))
+            }
             _ => Self::internal(err.to_string()),
         }
     }
