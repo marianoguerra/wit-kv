@@ -417,7 +417,9 @@ pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
 #[derive(Default)]
 pub struct TypedRunnerBuilder {
     component_path: Option<PathBuf>,
+    component_bytes: Option<Vec<u8>>,
     wit_path: Option<PathBuf>,
+    wit_text: Option<String>,
     input_type_name: Option<String>,
     output_type_name: Option<String>,
 }
@@ -430,18 +432,36 @@ impl TypedRunnerBuilder {
 
     /// Set the path to the WebAssembly component file.
     ///
-    /// This is required and must point to a valid `.wasm` component file.
+    /// This is required (or use `component_bytes`) and must point to a valid `.wasm` component file.
     pub fn component(mut self, path: impl AsRef<Path>) -> Self {
         self.component_path = Some(path.as_ref().to_path_buf());
         self
     }
 
+    /// Set the WebAssembly component bytes directly.
+    ///
+    /// Use this instead of `component()` when you have the WASM bytes in memory.
+    /// This is useful for HTTP API requests where the component is uploaded.
+    pub fn component_bytes(mut self, bytes: Vec<u8>) -> Self {
+        self.component_bytes = Some(bytes);
+        self
+    }
+
     /// Set the path to the WIT file defining the types.
     ///
-    /// This is required and must point to a valid `.wit` file containing
+    /// This is required (or use `wit_text`) and must point to a valid `.wit` file containing
     /// the type definitions for the component.
     pub fn wit(mut self, path: impl AsRef<Path>) -> Self {
         self.wit_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the WIT definition text directly.
+    ///
+    /// Use this instead of `wit()` when you have the WIT definition as a string.
+    /// This is useful for HTTP API requests where the WIT is provided inline.
+    pub fn wit_text(mut self, wit: impl Into<String>) -> Self {
+        self.wit_text = Some(wit.into());
         self
     }
 
@@ -467,28 +487,59 @@ impl TypedRunnerBuilder {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Required fields (component, wit, input_type) are not set
+    /// - Required fields (component or component_bytes, wit or wit_text, input_type) are not set
     /// - The component file cannot be loaded
     /// - The WIT file cannot be parsed
     /// - The specified types are not found in the WIT file
     pub fn build(self) -> Result<TypedRunner, WasmError> {
-        let component_path = self.component_path.ok_or_else(|| WasmError::TypeMismatch {
-            keyspace_type: "component path is required".to_string(),
-        })?;
+        // Get component bytes from path or direct bytes
+        let component_bytes = match (self.component_path, self.component_bytes) {
+            (Some(path), None) => std::fs::read(&path)?,
+            (None, Some(bytes)) => bytes,
+            (None, None) => {
+                return Err(WasmError::TypeMismatch {
+                    keyspace_type: "component path or bytes is required".to_string(),
+                })
+            }
+            (Some(_), Some(_)) => {
+                return Err(WasmError::TypeMismatch {
+                    keyspace_type: "provide either component path or bytes, not both".to_string(),
+                })
+            }
+        };
 
-        let wit_path = self.wit_path.ok_or_else(|| WasmError::TypeMismatch {
-            keyspace_type: "WIT path is required".to_string(),
-        })?;
+        // Load WIT definition from path or text
+        let mut resolve = Resolve::new();
+        match (self.wit_path, self.wit_text) {
+            (Some(path), None) => {
+                resolve.push_path(&path)?;
+            }
+            (None, Some(text)) => {
+                resolve.push_str("<inline>", &text)?;
+            }
+            (None, None) => {
+                return Err(WasmError::TypeMismatch {
+                    keyspace_type: "WIT path or text is required".to_string(),
+                })
+            }
+            (Some(_), Some(_)) => {
+                return Err(WasmError::TypeMismatch {
+                    keyspace_type: "provide either WIT path or text, not both".to_string(),
+                })
+            }
+        };
 
         let input_type_name = self.input_type_name.ok_or_else(|| WasmError::TypeMismatch {
             keyspace_type: "input type name is required".to_string(),
         })?;
 
-        TypedRunner::new(
-            &component_path,
-            &wit_path,
+        let output_type_name = self.output_type_name;
+
+        TypedRunner::from_parts(
+            component_bytes,
+            resolve,
             &input_type_name,
-            self.output_type_name.as_deref(),
+            output_type_name.as_deref(),
         )
     }
 }
@@ -594,6 +645,61 @@ impl TypedRunner {
 
         // Load component
         let component_bytes = std::fs::read(module_path)?;
+        let component = Component::new(&engine, &component_bytes)?;
+
+        // Create linker and store
+        let linker: Linker<()> = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+
+        // Instantiate the component
+        let instance = linker.instantiate(&mut store, &component)?;
+
+        Ok(Self {
+            engine,
+            store,
+            instance,
+            resolve,
+            input_type_id,
+            output_type_id,
+        })
+    }
+
+    /// Create a TypedRunner from pre-loaded parts.
+    ///
+    /// This is used internally by the builder when loading from bytes or text.
+    ///
+    /// # Arguments
+    /// * `component_bytes` - The WASM component bytes
+    /// * `resolve` - Pre-loaded WIT resolver with type definitions
+    /// * `input_type_name` - Name of the input type (e.g., "point")
+    /// * `output_type_name` - Name of the output type (defaults to input type)
+    pub fn from_parts(
+        component_bytes: Vec<u8>,
+        resolve: Resolve,
+        input_type_name: &str,
+        output_type_name: Option<&str>,
+    ) -> Result<Self, WasmError> {
+        // Find input type
+        let input_type_id = find_type_by_name(&resolve, input_type_name).ok_or_else(|| {
+            WasmError::TypeMismatch {
+                keyspace_type: format!("input type '{}' not found in WIT", input_type_name),
+            }
+        })?;
+
+        // Find output type (defaults to input type)
+        let output_type_name = output_type_name.unwrap_or(input_type_name);
+        let output_type_id = find_type_by_name(&resolve, output_type_name).ok_or_else(|| {
+            WasmError::TypeMismatch {
+                keyspace_type: format!("output type '{}' not found in WIT", output_type_name),
+            }
+        })?;
+
+        // Create wasmtime engine
+        let mut config = Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config)?;
+
+        // Load component from bytes
         let component = Component::new(&engine, &component_bytes)?;
 
         // Create linker and store
