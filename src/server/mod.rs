@@ -7,11 +7,13 @@
 mod config;
 mod content;
 mod error;
+mod logging;
 mod routes;
 mod state;
 
-pub use config::{Config, CorsConfig, DatabaseConfig, ServerConfig};
+pub use config::{Config, CorsConfig, DatabaseConfig, LogFormat, LoggingConfig, ServerConfig};
 pub use content::ContentFormat;
 pub use error::ApiError;
+pub use logging::{init as init_logging, LoggingError};
 pub use routes::router;
 pub use state::AppState;

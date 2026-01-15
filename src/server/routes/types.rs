@@ -10,6 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use tempfile::NamedTempFile;
+use tracing::{debug, info, instrument};
 
 use crate::kv::{KeyspaceList, KeyspaceMetadata};
 
@@ -76,14 +77,20 @@ impl From<KeyspaceMetadata> for TypeMetadataResponse {
 }
 
 /// List all types in a database.
+#[instrument(skip(state, format), fields(database = %database))]
 pub async fn list_types(
     State(state): State<AppState>,
     Path(database): Path<String>,
     AcceptFormat(format): AcceptFormat,
 ) -> Result<Response, ApiError> {
+    debug!("listing types");
+
     let store = state.get_database(&database)?;
     let types = store.list_types()?;
+    let count = types.len();
     let keyspace_list = KeyspaceList::new(types);
+
+    info!(count, "listed types");
 
     match format {
         ContentFormat::Wave => {
@@ -106,26 +113,33 @@ pub async fn list_types(
 }
 
 /// Get type metadata for a keyspace.
+#[instrument(skip(state), fields(database = %database, keyspace = %keyspace))]
 pub async fn get_type(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
 ) -> Result<Json<TypeMetadataResponse>, ApiError> {
+    debug!("getting type metadata");
+
     let store = state.get_database(&database)?;
 
     let metadata = store
         .get_type(&keyspace)?
         .ok_or_else(|| ApiError::keyspace_not_found(&database, &keyspace))?;
 
+    info!(qualified_name = %metadata.qualified_name, "retrieved type metadata");
     Ok(Json(metadata.into()))
 }
 
 /// Register a type for a keyspace.
+#[instrument(skip(state, body), fields(database = %database, keyspace = %keyspace, type_name = query.type_name.as_deref(), force = query.force))]
 pub async fn set_type(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
     Query(query): Query<SetTypeQuery>,
     body: Bytes,
 ) -> Result<Json<TypeMetadataResponse>, ApiError> {
+    debug!(body_len = body.len(), "registering type");
+
     let store = state.get_database(&database)?;
 
     // The WIT definition is provided in the request body
@@ -147,16 +161,26 @@ pub async fn set_type(
         query.force,
     )?;
 
+    info!(
+        qualified_name = %metadata.qualified_name,
+        type_version = %format!("{}.{}.{}", metadata.type_version.major, metadata.type_version.minor, metadata.type_version.patch),
+        "type registered"
+    );
     Ok(Json(metadata.into()))
 }
 
 /// Delete a type from a keyspace.
+#[instrument(skip(state), fields(database = %database, keyspace = %keyspace, delete_data = query.delete_data))]
 pub async fn delete_type(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
     Query(query): Query<DeleteTypeQuery>,
 ) -> Result<StatusCode, ApiError> {
+    debug!("deleting type");
+
     let store = state.get_database(&database)?;
     store.delete_type(&keyspace, query.delete_data)?;
+
+    info!("type deleted");
     Ok(StatusCode::NO_CONTENT)
 }

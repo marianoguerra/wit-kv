@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use tracing::{debug, info, instrument};
 
 use crate::kv::{BinaryExport, KeyList};
 
@@ -26,12 +27,21 @@ pub struct ListQuery {
 }
 
 /// List keys in a keyspace.
+#[instrument(skip(state, format), fields(database = %database, keyspace = %keyspace))]
 pub async fn list_keys(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
     Query(query): Query<ListQuery>,
     AcceptFormat(format): AcceptFormat,
 ) -> Result<Response, ApiError> {
+    debug!(
+        prefix = query.prefix.as_deref(),
+        start = query.start.as_deref(),
+        end = query.end.as_deref(),
+        limit = query.limit,
+        "listing keys"
+    );
+
     let store = state.get_database(&database)?;
 
     let keys = store.list(
@@ -42,7 +52,10 @@ pub async fn list_keys(
         query.limit,
     )?;
 
+    let count = keys.len();
     let key_list = KeyList::new(keys);
+
+    info!(count, "listed keys");
 
     match format {
         ContentFormat::Wave => Ok(FormatResponse::wave(key_list.to_wave()).into_response()),
@@ -60,11 +73,14 @@ pub async fn list_keys(
 }
 
 /// Get a value from the store.
+#[instrument(skip(state, format), fields(database = %database, keyspace = %keyspace, key = %key))]
 pub async fn get_value(
     State(state): State<AppState>,
     Path((database, keyspace, key)): Path<(String, String, String)>,
     AcceptFormat(format): AcceptFormat,
 ) -> Result<Response, ApiError> {
+    debug!("getting value");
+
     let store = state.get_database(&database)?;
 
     match format {
@@ -72,6 +88,7 @@ pub async fn get_value(
             let value = store
                 .get(&keyspace, &key)?
                 .ok_or_else(|| ApiError::key_not_found(&database, &keyspace, &key))?;
+            info!("retrieved value");
             Ok(FormatResponse::wave(value).into_response())
         }
         ContentFormat::Binary => {
@@ -88,18 +105,22 @@ pub async fn get_value(
             let mut bytes = buffer;
             bytes.extend(memory);
 
+            info!("retrieved value (binary)");
             Ok(FormatResponse::binary(bytes).into_response())
         }
     }
 }
 
 /// Set a value in the store.
+#[instrument(skip(state, format, body), fields(database = %database, keyspace = %keyspace, key = %key, body_len = body.len()))]
 pub async fn set_value(
     State(state): State<AppState>,
     Path((database, keyspace, key)): Path<(String, String, String)>,
     RequestFormat(format): RequestFormat,
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
+    debug!("setting value");
+
     let store = state.get_database(&database)?;
 
     match format {
@@ -120,15 +141,21 @@ pub async fn set_value(
         }
     }
 
+    info!("value set");
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// Delete a value from the store.
+#[instrument(skip(state), fields(database = %database, keyspace = %keyspace, key = %key))]
 pub async fn delete_value(
     State(state): State<AppState>,
     Path((database, keyspace, key)): Path<(String, String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    debug!("deleting value");
+
     let store = state.get_database(&database)?;
     store.delete(&keyspace, &key)?;
+
+    info!("value deleted");
     Ok(StatusCode::NO_CONTENT)
 }

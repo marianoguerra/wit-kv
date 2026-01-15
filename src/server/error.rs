@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::Serialize;
+use tracing::{debug, error};
 
 use crate::kv::KvError;
 use crate::wasm::WasmError;
@@ -158,6 +159,23 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        // Log server errors at error level, client errors at debug level
+        if self.status.is_server_error() {
+            error!(
+                status = %self.status.as_u16(),
+                code = %self.code,
+                message = %self.message,
+                "server error response"
+            );
+        } else if self.status.is_client_error() {
+            debug!(
+                status = %self.status.as_u16(),
+                code = %self.code,
+                message = %self.message,
+                "client error response"
+            );
+        }
+
         let body = ErrorResponse {
             error: ErrorBody {
                 code: self.code,

@@ -11,6 +11,9 @@ pub struct Config {
     /// CORS settings (optional, deny all by default).
     #[serde(default)]
     pub cors: CorsConfig,
+    /// Logging settings (optional, defaults to info level text output to stderr).
+    #[serde(default)]
+    pub logging: LoggingConfig,
     /// Database configurations.
     pub databases: Vec<DatabaseConfig>,
 }
@@ -96,16 +99,81 @@ pub struct DatabaseConfig {
     pub path: String,
 }
 
+/// Logging configuration.
+#[derive(Debug, Deserialize, Clone)]
+pub struct LoggingConfig {
+    /// Log level filter (e.g., "info", "debug", "warn").
+    /// Supports env_filter directive syntax like "wit_kv=debug,tower_http=info".
+    #[serde(default = "default_log_level")]
+    pub level: String,
+
+    /// Output format: "text" or "json".
+    #[serde(default)]
+    pub format: LogFormat,
+
+    /// Output destination: "stdout", "stderr", or a file path.
+    #[serde(default = "default_log_output")]
+    pub output: String,
+
+    /// Include ANSI color codes (only for text format to terminals).
+    #[serde(default = "default_true")]
+    pub color: bool,
+
+    /// Include timestamps in output.
+    #[serde(default = "default_true")]
+    pub timestamps: bool,
+
+    /// Include target (module path) in output.
+    #[serde(default = "default_true")]
+    pub target: bool,
+}
+
+/// Log output format.
+#[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    /// Human-readable text format.
+    #[default]
+    Text,
+    /// Structured JSON format (for log aggregators).
+    Json,
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
+fn default_log_output() -> String {
+    "stderr".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+            format: LogFormat::default(),
+            output: default_log_output(),
+            color: true,
+            timestamps: true,
+            target: true,
+        }
+    }
+}
+
 impl Config {
     /// Load configuration from a TOML file.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path.as_ref())
             .map_err(|e| ConfigError::Io(path.as_ref().display().to_string(), e))?;
-        Self::from_str(&content)
+        Self::parse(&content)
     }
 
     /// Parse configuration from a TOML string.
-    pub fn from_str(content: &str) -> Result<Self, ConfigError> {
+    pub fn parse(content: &str) -> Result<Self, ConfigError> {
         toml::from_str(content).map_err(ConfigError::Parse)
     }
 
@@ -154,7 +222,7 @@ path = ".wit-kv"
 name = "archive"
 path = "/var/lib/wit-kv/archive"
 "#;
-        let config = Config::from_str(toml).unwrap();
+        let config = Config::parse(toml).unwrap();
         assert_eq!(config.server.bind, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.databases.len(), 2);
@@ -185,7 +253,7 @@ max_age = 7200
 name = "main"
 path = "./data"
 "#;
-        let config = Config::from_str(toml).unwrap();
+        let config = Config::parse(toml).unwrap();
         assert_eq!(config.server.bind, "0.0.0.0");
         assert_eq!(config.server.port, 3000);
         assert_eq!(config.server.static_path, Some("./public".to_string()));

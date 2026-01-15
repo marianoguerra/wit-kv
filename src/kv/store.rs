@@ -3,9 +3,10 @@
 use std::path::Path;
 
 use fjall::{Keyspace, KeyspaceCreateOptions, PersistMode};
-use wasm_wave::value::{resolve_wit_type, Value};
+use wasm_wave::value::Value;
 use wit_parser::{Resolve, Type, TypeId};
 
+use crate::logging::{debug, error, info, trace, warn};
 use crate::wasm::val_to_wave;
 use crate::{find_first_named_type, find_type_by_name, CanonicalAbi, LinearMemory};
 
@@ -91,7 +92,10 @@ impl KvStore {
     /// ```
     pub fn open(path: impl AsRef<Path>) -> Result<Self, KvError> {
         let path = path.as_ref();
+        debug!(path = %path.display(), "opening KV store");
+
         if !path.exists() {
+            error!(path = %path.display(), "store path does not exist");
             return Err(KvError::NotInitialized(path.display().to_string()));
         }
 
@@ -107,15 +111,23 @@ impl KvStore {
                     .map_err(|_| KvError::InvalidFormat("Invalid config format".to_string()))?,
             );
             if version != STORE_VERSION {
+                error!(
+                    stored_version = version,
+                    expected_version = STORE_VERSION,
+                    "store version mismatch"
+                );
                 return Err(KvError::InvalidFormat(format!(
                     "Store version mismatch: expected {}, got {}",
                     STORE_VERSION, version
                 )));
             }
+            trace!(version = version, "store version verified");
         } else {
+            error!(path = %path.display(), "store not initialized - no config found");
             return Err(KvError::NotInitialized(path.display().to_string()));
         }
 
+        info!(path = %path.display(), "KV store opened");
         Ok(Self { db, meta })
     }
 
@@ -132,6 +144,8 @@ impl KvStore {
     /// ```
     pub fn init(path: impl AsRef<Path>) -> Result<Self, KvError> {
         let path = path.as_ref();
+        debug!(path = %path.display(), "initializing KV store");
+
         let db = fjall::Database::builder(path).open()?;
         let meta = db.keyspace("_meta", KeyspaceCreateOptions::default)?;
 
@@ -139,6 +153,7 @@ impl KvStore {
         meta.insert(META_CONFIG_KEY, STORE_VERSION.to_le_bytes())?;
         db.persist(PersistMode::SyncAll)?;
 
+        info!(path = %path.display(), version = STORE_VERSION, "KV store initialized");
         Ok(Self { db, meta })
     }
 
@@ -160,26 +175,39 @@ impl KvStore {
         force: bool,
     ) -> Result<KeyspaceMetadata, KvError> {
         let wit_path = wit_path.as_ref();
+        debug!(
+            keyspace = keyspace,
+            wit_path = %wit_path.display(),
+            type_name = type_name,
+            force = force,
+            "registering type for keyspace"
+        );
 
         // Check if keyspace already exists
         let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
         if !force && self.meta.get(&key)?.is_some() {
+            warn!(keyspace = keyspace, "keyspace already exists");
             return Err(KvError::KeyspaceExists(keyspace.to_string()));
         }
 
         // Parse the WIT file
+        trace!(wit_path = %wit_path.display(), "parsing WIT file");
         let mut resolve = Resolve::new();
         resolve.push_path(wit_path)?;
 
         // Find the type
         let type_id = match type_name {
             Some(tn) => {
-                find_type_by_name(&resolve, tn)
-                    .ok_or_else(|| KvError::TypeNotFound(tn.to_string()))?
+                find_type_by_name(&resolve, tn).ok_or_else(|| {
+                    error!(type_name = tn, "type not found in WIT");
+                    KvError::TypeNotFound(tn.to_string())
+                })?
             }
             None => {
-                find_first_named_type(&resolve)
-                    .ok_or_else(|| KvError::TypeNotFound("No named type found".to_string()))?
+                find_first_named_type(&resolve).ok_or_else(|| {
+                    error!("no named type found in WIT");
+                    KvError::TypeNotFound("No named type found".to_string())
+                })?
             }
         };
 
@@ -191,6 +219,11 @@ impl KvStore {
 
         // Build qualified name from package info
         let qualified_name = self.build_qualified_name(&resolve, type_id, &actual_type_name)?;
+        trace!(
+            type_name = %actual_type_name,
+            qualified_name = %qualified_name,
+            "resolved type"
+        );
 
         // Read WIT file content
         let wit_definition = std::fs::read_to_string(wit_path)?;
@@ -217,6 +250,12 @@ impl KvStore {
 
         self.db.persist(PersistMode::SyncAll)?;
 
+        info!(
+            keyspace = keyspace,
+            qualified_name = %metadata.qualified_name,
+            type_version = %format!("{}.{}.{}", metadata.type_version.major, metadata.type_version.minor, metadata.type_version.patch),
+            "type registered"
+        );
         Ok(metadata)
     }
 
@@ -228,6 +267,7 @@ impl KvStore {
 
     /// Delete a keyspace type (and optionally its data).
     pub fn delete_type(&self, keyspace: &str, delete_data: bool) -> Result<(), KvError> {
+        debug!(keyspace = keyspace, delete_data = delete_data, "deleting type");
         let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
 
         // Get metadata to find qualified name
@@ -251,6 +291,7 @@ impl KvStore {
                     .iter()
                     .filter_map(|kv| kv.key().ok().map(|k| k.to_vec()))
                     .collect();
+                trace!(key_count = keys.len(), "deleting data keys");
                 for k in keys {
                     data_keyspace.remove(&k)?;
                 }
@@ -258,6 +299,7 @@ impl KvStore {
         }
 
         self.db.persist(PersistMode::SyncAll)?;
+        info!(keyspace = keyspace, delete_data = delete_data, "type deleted");
         Ok(())
     }
 
@@ -286,21 +328,31 @@ impl KvStore {
 
     /// Set a value in a keyspace.
     pub fn set(&self, keyspace: &str, key: &str, wave_value: &str) -> Result<(), KvError> {
+        debug!(keyspace = keyspace, key = key, value_len = wave_value.len(), "setting value");
+
         let metadata = self
             .get_type(keyspace)?
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
 
         // Parse WIT type from stored definition
         let (resolve, type_id, wave_type) = self.parse_stored_type(&metadata)?;
+        trace!(type_name = %metadata.type_name, "parsed WIT type for encoding");
 
         // Parse the WAVE value
-        let value: Value = wasm_wave::from_str(&wave_type, wave_value)
-            .map_err(|e| KvError::WaveParse(e.to_string()))?;
+        let value: Value = wasm_wave::from_str(&wave_type, wave_value).map_err(|e| {
+            error!(keyspace = keyspace, key = key, error = %e, "failed to parse WAVE value");
+            KvError::WaveParse(e.to_string())
+        })?;
 
         // Lower to canonical ABI
         let abi = CanonicalAbi::new(&resolve);
         let mut memory = LinearMemory::new();
         let encoded = abi.lower_with_memory(&value, &Type::Id(type_id), &wave_type, &mut memory)?;
+        trace!(
+            buffer_size = encoded.len(),
+            memory_size = memory.len(),
+            "value encoded to canonical ABI"
+        );
 
         // Create StoredValue
         let stored = StoredValue::new(
@@ -322,11 +374,14 @@ impl KvStore {
         self.store_with_memory(&ks, key, &buffer, &mem)?;
         self.db.persist(PersistMode::SyncAll)?;
 
+        debug!(keyspace = keyspace, key = key, "value set");
         Ok(())
     }
 
     /// Get a value from a keyspace as WAVE text.
     pub fn get(&self, keyspace: &str, key: &str) -> Result<Option<String>, KvError> {
+        debug!(keyspace = keyspace, key = key, "getting value");
+
         let metadata = self
             .get_type(keyspace)?
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
@@ -336,11 +391,19 @@ impl KvStore {
 
         // Load stored value
         let Some(stored) = self.load_stored_value(&ks, key)? else {
+            trace!(keyspace = keyspace, key = key, "key not found");
             return Ok(None);
         };
 
         // Check type version compatibility
         if !metadata.type_version.can_read_from(&stored.type_version) {
+            warn!(
+                keyspace = keyspace,
+                key = key,
+                stored_version = %format!("{}.{}.{}", stored.type_version.major, stored.type_version.minor, stored.type_version.patch),
+                current_version = %format!("{}.{}.{}", metadata.type_version.major, metadata.type_version.minor, metadata.type_version.patch),
+                "type version mismatch"
+            );
             return Err(KvError::TypeVersionMismatch {
                 stored: stored.type_version,
                 current: metadata.type_version,
@@ -360,6 +423,7 @@ impl KvStore {
         // Convert to WAVE text
         let wave_str = wasm_wave::to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))?;
 
+        debug!(keyspace = keyspace, key = key, "value retrieved");
         Ok(Some(wave_str))
     }
 
@@ -377,6 +441,8 @@ impl KvStore {
 
     /// Delete a value from a keyspace.
     pub fn delete(&self, keyspace: &str, key: &str) -> Result<(), KvError> {
+        debug!(keyspace = keyspace, key = key, "deleting value");
+
         let _ = self
             .get_type(keyspace)?
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
@@ -389,6 +455,7 @@ impl KvStore {
         ks.remove(&memory_key)?;
 
         self.db.persist(PersistMode::SyncAll)?;
+        debug!(keyspace = keyspace, key = key, "value deleted");
         Ok(())
     }
 
@@ -406,6 +473,15 @@ impl KvStore {
         end: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<String>, KvError> {
+        debug!(
+            keyspace = keyspace,
+            prefix = prefix,
+            start = start,
+            end = end,
+            limit = limit,
+            "listing keys"
+        );
+
         let _ = self
             .get_type(keyspace)?
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
@@ -453,6 +529,7 @@ impl KvStore {
             }
         }
 
+        debug!(keyspace = keyspace, count = keys.len(), "listed keys");
         Ok(keys)
     }
 
@@ -508,16 +585,8 @@ impl KvStore {
         &self,
         metadata: &KeyspaceMetadata,
     ) -> Result<(Resolve, TypeId, wasm_wave::value::Type), KvError> {
-        let mut resolve = Resolve::new();
-        resolve.push_str("stored.wit", &metadata.wit_definition)?;
-
-        let type_id = find_type_by_name(&resolve, &metadata.type_name)
-            .ok_or_else(|| KvError::TypeNotFound(metadata.type_name.clone()))?;
-
-        let wave_type =
-            resolve_wit_type(&resolve, type_id).map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-        Ok((resolve, type_id, wave_type))
+        crate::load_wit_type_from_string(&metadata.wit_definition, Some(&metadata.type_name))
+            .map_err(|e| KvError::WaveParse(e.to_string()))
     }
 
     fn store_with_memory(

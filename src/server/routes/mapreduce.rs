@@ -5,6 +5,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, instrument, warn};
 
 use crate::kv::KvStore;
 use crate::wasm::TypedRunner;
@@ -198,13 +199,26 @@ fn get_filtered_keys(
 /// Expects a multipart/form-data request with:
 /// - `module`: WASM component bytes
 /// - `config`: JSON with MapConfig
+#[instrument(skip(state, multipart), fields(database = %database, keyspace = %keyspace))]
 pub async fn map_operation(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
     mut multipart: Multipart,
 ) -> Result<Json<MapResult>, ApiError> {
+    debug!("starting map operation");
+
     // Extract module bytes and config from multipart
     let (module_bytes, config) = extract_map_multipart(&mut multipart).await?;
+
+    debug!(
+        module_size = module_bytes.len(),
+        input_type = %config.input_type,
+        output_type = config.output_type.as_deref(),
+        filter.key = config.filter.key.as_deref(),
+        filter.prefix = config.filter.prefix.as_deref(),
+        filter.limit = config.filter.limit,
+        "map config extracted"
+    );
 
     let store = state.get_database(&database)?;
 
@@ -224,7 +238,7 @@ pub async fn map_operation(
         .ok_or_else(|| ApiError::keyspace_not_found(&database, &keyspace))?;
 
     // Get keys based on filter
-    let keys = get_filtered_keys(&store, &keyspace, &config.filter)?;
+    let keys = get_filtered_keys(store, &keyspace, &config.filter)?;
 
     // Execute map operation
     let mut processed: u32 = 0;
@@ -268,6 +282,19 @@ pub async fn map_operation(
         }
     }
 
+    // Log individual errors at warn level
+    for (key, error) in &errors {
+        warn!(key = %key, error = %error, "map error for key");
+    }
+
+    info!(
+        processed,
+        transformed,
+        filtered,
+        errors = errors.len(),
+        "map operation completed"
+    );
+
     Ok(Json(MapResult {
         processed,
         transformed,
@@ -282,13 +309,25 @@ pub async fn map_operation(
 /// Expects a multipart/form-data request with:
 /// - `module`: WASM component bytes
 /// - `config`: JSON with ReduceConfig
+#[instrument(skip(state, multipart), fields(database = %database, keyspace = %keyspace))]
 pub async fn reduce_operation(
     State(state): State<AppState>,
     Path((database, keyspace)): Path<(String, String)>,
     mut multipart: Multipart,
 ) -> Result<Json<ReduceResult>, ApiError> {
+    debug!("starting reduce operation");
+
     // Extract module bytes and config from multipart
     let (module_bytes, config) = extract_reduce_multipart(&mut multipart).await?;
+
+    debug!(
+        module_size = module_bytes.len(),
+        input_type = %config.input_type,
+        state_type = %config.state_type,
+        filter.prefix = config.filter.prefix.as_deref(),
+        filter.limit = config.filter.limit,
+        "reduce config extracted"
+    );
 
     let store = state.get_database(&database)?;
 
@@ -307,7 +346,7 @@ pub async fn reduce_operation(
         .ok_or_else(|| ApiError::keyspace_not_found(&database, &keyspace))?;
 
     // Get keys based on filter
-    let keys = get_filtered_keys(&store, &keyspace, &config.filter)?;
+    let keys = get_filtered_keys(store, &keyspace, &config.filter)?;
 
     // Initialize state
     let mut current_state = runner
@@ -342,6 +381,17 @@ pub async fn reduce_operation(
         .map_err(|e| ApiError::internal(format!("encode: {}", e)))?;
 
     let error_count = errors.len() as u32;
+
+    // Log individual errors at warn level
+    for (key, error) in &errors {
+        warn!(key = %key, error = %error, "reduce error for key");
+    }
+
+    info!(
+        processed,
+        error_count,
+        "reduce operation completed"
+    );
 
     Ok(Json(ReduceResult {
         processed,

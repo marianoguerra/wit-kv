@@ -10,6 +10,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use tracing::{debug, info, instrument};
 
 use crate::kv::DatabaseList;
 
@@ -44,17 +45,25 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// Health check endpoint.
+#[instrument]
 async fn health() -> &'static str {
+    debug!("health check");
     "ok"
 }
 
 /// List all databases.
+#[instrument(skip(state, format))]
 pub async fn list_databases(
     State(state): State<AppState>,
     AcceptFormat(format): AcceptFormat,
 ) -> Result<Response, ApiError> {
+    debug!("listing databases");
+
     let names = state.database_names();
+    let count = names.len();
     let db_list = DatabaseList::from_names(names);
+
+    info!(count, "listed databases");
 
     match format {
         ContentFormat::Wave => Ok(FormatResponse::wave(db_list.to_wave()).into_response()),

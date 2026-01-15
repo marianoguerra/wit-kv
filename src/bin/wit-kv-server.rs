@@ -10,7 +10,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
-use wit_kv::server::{router, AppState, Config, CorsConfig};
+use wit_kv::server::{init_logging, router, AppState, Config, CorsConfig};
 
 /// wit-kv HTTP API server.
 #[derive(Parser, Debug)]
@@ -72,14 +72,14 @@ fn build_cors_layer(config: &CorsConfig) -> CorsLayer {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
-
     let args = Args::parse();
 
-    // Load configuration
+    // Load configuration first (needed for logging setup)
     let config = Config::from_file(&args.config)?;
     let bind_addr = config.bind_addr();
+
+    // Initialize logging from config
+    init_logging(&config.logging)?;
 
     tracing::info!("Loading databases...");
     for db in &config.databases {
@@ -129,17 +129,21 @@ async fn main() -> anyhow::Result<()> {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(e) = signal::ctrl_c().await {
+            tracing::error!("Failed to install Ctrl+C handler: {}", e);
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to install signal handler: {}", e);
+            }
+        }
     };
 
     #[cfg(not(unix))]

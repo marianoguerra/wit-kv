@@ -29,6 +29,7 @@ use super::error::WasmError;
 use crate::abi::{CanonicalAbi, LinearMemory};
 use crate::find_type_by_name;
 use crate::kv::{SemanticVersion, StoredValue};
+use crate::logging::{debug, error, info, trace};
 
 /// Convert a wasm_wave::Value to a wasmtime::component::Val based on the target type.
 pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, WasmError> {
@@ -679,8 +680,16 @@ impl TypedRunner {
         input_type_name: &str,
         output_type_name: Option<&str>,
     ) -> Result<Self, WasmError> {
+        debug!(
+            component_size = component_bytes.len(),
+            input_type = input_type_name,
+            output_type = output_type_name,
+            "creating TypedRunner"
+        );
+
         // Find input type
         let input_type_id = find_type_by_name(&resolve, input_type_name).ok_or_else(|| {
+            error!(type_name = input_type_name, "input type not found in WIT");
             WasmError::TypeMismatch {
                 keyspace_type: format!("input type '{}' not found in WIT", input_type_name),
             }
@@ -689,10 +698,13 @@ impl TypedRunner {
         // Find output type (defaults to input type)
         let output_type_name = output_type_name.unwrap_or(input_type_name);
         let output_type_id = find_type_by_name(&resolve, output_type_name).ok_or_else(|| {
+            error!(type_name = output_type_name, "output type not found in WIT");
             WasmError::TypeMismatch {
                 keyspace_type: format!("output type '{}' not found in WIT", output_type_name),
             }
         })?;
+
+        trace!("creating wasmtime engine with component model");
 
         // Create wasmtime engine
         let mut config = Config::new();
@@ -700,6 +712,7 @@ impl TypedRunner {
         let engine = Engine::new(&config)?;
 
         // Load component from bytes
+        trace!(bytes = component_bytes.len(), "loading WASM component");
         let component = Component::new(&engine, &component_bytes)?;
 
         // Create linker and store
@@ -707,7 +720,14 @@ impl TypedRunner {
         let mut store = Store::new(&engine, ());
 
         // Instantiate the component
+        trace!("instantiating component");
         let instance = linker.instantiate(&mut store, &component)?;
+
+        info!(
+            input_type = input_type_name,
+            output_type = output_type_name,
+            "TypedRunner created"
+        );
 
         Ok(Self {
             engine,
@@ -815,6 +835,7 @@ impl TypedRunner {
     ///
     /// The filter function should have signature: `filter(value: T) -> bool`
     pub fn call_filter(&mut self, stored: &StoredValue) -> Result<bool, WasmError> {
+        debug!("calling filter function");
         let func = self.get_func("filter")?;
 
         // Get function type to determine parameter type
@@ -826,24 +847,40 @@ impl TypedRunner {
         })?;
 
         // Convert stored value to wasmtime Val
+        trace!("converting stored value to Val");
         let input_val = self.stored_to_val(stored, &param_type)?;
 
         // Call function
         let mut results = vec![Val::Bool(false)];
         func.call(&mut self.store, &[input_val], &mut results)
-            .map_err(|e| WasmError::Trap(e.to_string()))?;
+            .map_err(|e| {
+                error!(error = %e, "filter function trap");
+                WasmError::Trap(e.to_string())
+            })?;
 
         func.post_return(&mut self.store)
-            .map_err(|e| WasmError::Trap(format!("post_return failed: {}", e)))?;
+            .map_err(|e| {
+                error!(error = %e, "filter post_return failed");
+                WasmError::Trap(format!("post_return failed: {}", e))
+            })?;
 
         match results.first() {
-            Some(Val::Bool(b)) => Ok(*b),
-            Some(other) => Err(WasmError::InvalidReturnType {
-                expected: format!("bool, got {:?}", other),
-            }),
-            None => Err(WasmError::InvalidReturnType {
-                expected: "bool, got no result".to_string(),
-            }),
+            Some(Val::Bool(b)) => {
+                debug!(result = *b, "filter function completed");
+                Ok(*b)
+            }
+            Some(other) => {
+                error!(result = ?other, "filter returned unexpected type");
+                Err(WasmError::InvalidReturnType {
+                    expected: format!("bool, got {:?}", other),
+                })
+            }
+            None => {
+                error!("filter returned no result");
+                Err(WasmError::InvalidReturnType {
+                    expected: "bool, got no result".to_string(),
+                })
+            }
         }
     }
 
@@ -855,6 +892,7 @@ impl TypedRunner {
         stored: &StoredValue,
         type_version: SemanticVersion,
     ) -> Result<StoredValue, WasmError> {
+        debug!("calling transform function");
         let func = self.get_func("transform")?;
 
         // Get function type
@@ -872,6 +910,7 @@ impl TypedRunner {
         })?;
 
         // Convert input
+        trace!("converting stored value to Val");
         let input_val = self.stored_to_val(stored, &param_type)?;
 
         // Create result placeholder
@@ -879,17 +918,28 @@ impl TypedRunner {
 
         // Call function
         func.call(&mut self.store, &[input_val], &mut results)
-            .map_err(|e| WasmError::Trap(e.to_string()))?;
+            .map_err(|e| {
+                error!(error = %e, "transform function trap");
+                WasmError::Trap(e.to_string())
+            })?;
 
         // Convert result to StoredValue
-        let result_val = results.first().ok_or_else(|| WasmError::InvalidReturnType {
-            expected: "transform function should return a value".to_string(),
+        let result_val = results.first().ok_or_else(|| {
+            error!("transform returned no result");
+            WasmError::InvalidReturnType {
+                expected: "transform function should return a value".to_string(),
+            }
         })?;
+        trace!("converting result Val to StoredValue");
         let output = self.val_to_stored(result_val, type_version)?;
 
         func.post_return(&mut self.store)
-            .map_err(|e| WasmError::Trap(format!("post_return failed: {}", e)))?;
+            .map_err(|e| {
+                error!(error = %e, "transform post_return failed");
+                WasmError::Trap(format!("post_return failed: {}", e))
+            })?;
 
+        debug!("transform function completed");
         Ok(output)
     }
 
@@ -902,6 +952,7 @@ impl TypedRunner {
     ///
     /// The init-state function should have signature: `init-state() -> StateType`
     pub fn call_init_state(&mut self, type_version: SemanticVersion) -> Result<StoredValue, WasmError> {
+        debug!("calling init-state function");
         let func = self.get_func("init-state")?;
 
         // Get function type
@@ -917,17 +968,28 @@ impl TypedRunner {
 
         // Call function (no parameters)
         func.call(&mut self.store, &[], &mut results)
-            .map_err(|e| WasmError::Trap(e.to_string()))?;
+            .map_err(|e| {
+                error!(error = %e, "init-state function trap");
+                WasmError::Trap(e.to_string())
+            })?;
 
         // Convert result to StoredValue using output_type (which is the state type)
-        let result_val = results.first().ok_or_else(|| WasmError::InvalidReturnType {
-            expected: "init-state function should return a value".to_string(),
+        let result_val = results.first().ok_or_else(|| {
+            error!("init-state returned no result");
+            WasmError::InvalidReturnType {
+                expected: "init-state function should return a value".to_string(),
+            }
         })?;
+        trace!("converting result Val to StoredValue");
         let output = self.val_to_stored(result_val, type_version)?;
 
         func.post_return(&mut self.store)
-            .map_err(|e| WasmError::Trap(format!("post_return failed: {}", e)))?;
+            .map_err(|e| {
+                error!(error = %e, "init-state post_return failed");
+                WasmError::Trap(format!("post_return failed: {}", e))
+            })?;
 
+        debug!("init-state function completed");
         Ok(output)
     }
 
@@ -962,6 +1024,7 @@ impl TypedRunner {
         value: &StoredValue,
         type_version: SemanticVersion,
     ) -> Result<StoredValue, WasmError> {
+        debug!("calling reduce function");
         let func = self.get_func("reduce")?;
 
         // Get function type
@@ -987,6 +1050,7 @@ impl TypedRunner {
         })?;
 
         // Convert state and value to wasmtime Vals
+        trace!("converting state and value to Vals");
         let state_val = self.state_to_val(state, &state_param_type)?;
         let value_val = self.stored_to_val(value, &value_param_type)?;
 
@@ -995,17 +1059,28 @@ impl TypedRunner {
 
         // Call function
         func.call(&mut self.store, &[state_val, value_val], &mut results)
-            .map_err(|e| WasmError::Trap(e.to_string()))?;
+            .map_err(|e| {
+                error!(error = %e, "reduce function trap");
+                WasmError::Trap(e.to_string())
+            })?;
 
         // Convert result to StoredValue
-        let result_val = results.first().ok_or_else(|| WasmError::InvalidReturnType {
-            expected: "reduce function should return a value".to_string(),
+        let result_val = results.first().ok_or_else(|| {
+            error!("reduce returned no result");
+            WasmError::InvalidReturnType {
+                expected: "reduce function should return a value".to_string(),
+            }
         })?;
+        trace!("converting result Val to StoredValue");
         let output = self.val_to_stored(result_val, type_version)?;
 
         func.post_return(&mut self.store)
-            .map_err(|e| WasmError::Trap(format!("post_return failed: {}", e)))?;
+            .map_err(|e| {
+                error!(error = %e, "reduce post_return failed");
+                WasmError::Trap(format!("post_return failed: {}", e))
+            })?;
 
+        debug!("reduce function completed");
         Ok(output)
     }
 }

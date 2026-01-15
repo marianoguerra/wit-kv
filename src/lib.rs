@@ -29,10 +29,13 @@
 //!
 //! - `kv` - Enable the key-value store module (enabled by default)
 //! - `wasm` - Enable WebAssembly component execution (enabled by default)
+//! - `logging` - Enable library-level tracing (consumers provide their own subscriber)
 //! - `cli` - Enable the command-line interface binary
+//! - `server` - Enable the HTTP API server
 //! - `full` - Enable all features
 
 pub mod abi;
+mod logging;
 #[cfg(feature = "kv")]
 pub mod kv;
 pub mod prelude;
@@ -84,4 +87,43 @@ pub fn find_first_named_type(resolve: &Resolve) -> Option<TypeId> {
         .iter()
         .find(|(_, ty)| ty.name.is_some())
         .map(|(id, _)| id)
+}
+
+/// Load a WIT type definition from a string.
+///
+/// Returns the Resolve, TypeId, and WaveType for the specified type.
+/// If `type_name` is None, uses the first named type in the definition.
+///
+/// # Example
+///
+/// ```ignore
+/// use wit_kv::load_wit_type_from_string;
+///
+/// let wit_def = r#"
+///     package test:types;
+///     interface types {
+///         record point { x: u32, y: u32 }
+///     }
+/// "#;
+///
+/// let (resolve, type_id, wave_type) = load_wit_type_from_string(wit_def, Some("point"))?;
+/// ```
+pub fn load_wit_type_from_string(
+    wit_definition: &str,
+    type_name: Option<&str>,
+) -> Result<(Resolve, TypeId, WaveType)> {
+    let mut resolve = Resolve::new();
+    resolve.push_str("input.wit", wit_definition)?;
+
+    let type_id = match type_name {
+        Some(name) => find_type_by_name(&resolve, name)
+            .ok_or_else(|| Error::WaveParse(format!("Type '{}' not found", name))),
+        None => find_first_named_type(&resolve)
+            .ok_or_else(|| Error::WaveParse("No named type found in WIT definition".to_string())),
+    }?;
+
+    let wave_type = resolve_wit_type(&resolve, type_id)
+        .map_err(|e| Error::WaveParse(e.to_string()))?;
+
+    Ok((resolve, type_id, wave_type))
 }
