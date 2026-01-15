@@ -665,14 +665,6 @@ fn run(cli: Cli) -> Result<(), AppError> {
             let mut transformed = 0;
             let mut errors: Vec<(String, String)> = Vec::new();
 
-            // Get wave type for output
-            let wave_type = runner.output_wave_type()?;
-
-            // Load resolve and type_id once for output decoding
-            let output_type_name = output_type.as_deref().unwrap_or(&input_type);
-            let (output_resolve, output_type_id) = load_wit_type(&module_wit, Some(output_type_name))?;
-            let output_abi = CanonicalAbi::new(&output_resolve);
-
             for k in keys {
                 match store.get_raw(&keyspace, &k)? {
                     Some(stored) => {
@@ -682,31 +674,9 @@ fn run(cli: Cli) -> Result<(), AppError> {
                                 // Call transform
                                 match runner.call_transform(&stored, metadata.type_version) {
                                     Ok(result) => {
-                                        // Output the transformed value
-                                        // Uses Val-based path: binary -> Val -> wasm_wave::Value -> text
-                                        let memory = LinearMemory::from_optional(result.memory.as_ref());
-
-                                        match output_abi.lift_to_val(
-                                            &result.value,
-                                            &Type::Id(output_type_id),
-                                            None,
-                                            &memory,
-                                        ) {
-                                            Ok((val, _)) => {
-                                                match val_to_wave(&val, &wave_type) {
-                                                    Ok(value) => {
-                                                        let wave_str = wasm_wave::to_string(&value)
-                                                            .map_err(|e| AppError::WaveWrite(e.to_string()))?;
-                                                        println!("{}: {}", k, wave_str);
-                                                    }
-                                                    Err(e) => {
-                                                        eprintln!("{}: <decode error: {}>", k, e);
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                eprintln!("{}: <decode error: {}>", k, e);
-                                            }
+                                        match runner.stored_to_wave_string(&result) {
+                                            Ok(wave_str) => println!("{}: {}", k, wave_str),
+                                            Err(e) => eprintln!("{}: <decode error: {}>", k, e),
                                         }
                                         transformed += 1;
                                     }
@@ -800,33 +770,9 @@ fn run(cli: Cli) -> Result<(), AppError> {
             }
 
             // Output final state as WAVE
-            // Uses Val-based path: binary -> Val -> wasm_wave::Value -> text
-            let wave_type = runner.output_wave_type()?;
-            let (output_resolve, output_type_id) = load_wit_type(&module_wit, Some(&state_type))?;
-            let output_abi = CanonicalAbi::new(&output_resolve);
-            let memory = LinearMemory::from_optional(state.memory.as_ref());
-
-            match output_abi.lift_to_val(
-                &state.value,
-                &Type::Id(output_type_id),
-                None,
-                &memory,
-            ) {
-                Ok((val, _)) => {
-                    match val_to_wave(&val, &wave_type) {
-                        Ok(value) => {
-                            let wave_str = wasm_wave::to_string(&value)
-                                .map_err(|e| AppError::WaveWrite(e.to_string()))?;
-                            println!("{}", wave_str);
-                        }
-                        Err(e) => {
-                            eprintln!("<decode error: {}>", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("<decode error: {}>", e);
-                }
+            match runner.stored_to_wave_string(&state) {
+                Ok(wave_str) => println!("{}", wave_str),
+                Err(e) => eprintln!("<decode error: {}>", e),
             }
 
             eprintln!(

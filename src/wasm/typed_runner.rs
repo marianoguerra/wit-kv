@@ -735,6 +735,33 @@ impl TypedRunner {
             })
     }
 
+    /// Convert a StoredValue (output type) to a WAVE-encoded string.
+    ///
+    /// This performs the full conversion pipeline:
+    /// 1. Lifts binary data to wasmtime Val
+    /// 2. Converts Val to wasm_wave Value
+    /// 3. Serializes to WAVE string format
+    ///
+    /// This is useful for displaying transform/reduce results.
+    pub fn stored_to_wave_string(&self, stored: &StoredValue) -> Result<String, WasmError> {
+        let wave_type = self.output_wave_type()?;
+        let abi = CanonicalAbi::new(&self.resolve);
+        let memory = LinearMemory::from_optional(stored.memory.as_ref());
+
+        let (val, _) = abi.lift_to_val(
+            &stored.value,
+            &wit_parser::Type::Id(self.output_type_id),
+            None,
+            &memory,
+        )?;
+
+        let wave_value = val_to_wave(&val, &wave_type)?;
+
+        wasm_wave::to_string(&wave_value).map_err(|e| WasmError::TypeMismatch {
+            keyspace_type: format!("failed to encode WAVE string: {}", e),
+        })
+    }
+
     /// Convert a StoredValue to a typed Val for function calls.
     /// Uses direct binary -> Val conversion (hot path, bypasses wasm_wave::Value).
     pub fn stored_to_val(

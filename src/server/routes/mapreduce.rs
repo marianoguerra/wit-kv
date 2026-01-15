@@ -5,11 +5,9 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use wit_parser::Type;
 
-use crate::abi::{CanonicalAbi, LinearMemory};
 use crate::kv::KvStore;
-use crate::wasm::{val_to_wave, TypedRunner};
+use crate::wasm::TypedRunner;
 
 use super::super::{error::ApiError, state::AppState};
 
@@ -235,21 +233,6 @@ pub async fn map_operation(
     let mut errors: Vec<(String, String)> = Vec::new();
     let mut results: Vec<(String, String)> = Vec::new();
 
-    // Get wave type for output decoding
-    let wave_type = runner
-        .output_wave_type()
-        .map_err(ApiError::from)?;
-
-    // Get output type info for decoding
-    let output_type_name = config.output_type.as_deref().unwrap_or(&config.input_type);
-    let mut output_resolve = wit_parser::Resolve::new();
-    output_resolve
-        .push_str("<inline>", &config.wit_definition)
-        .map_err(|e| ApiError::invalid_wit(e.to_string()))?;
-    let output_type_id = crate::find_type_by_name(&output_resolve, output_type_name)
-        .ok_or_else(|| ApiError::invalid_wit(format!("Type '{}' not found in WIT definition", output_type_name)))?;
-    let output_abi = CanonicalAbi::new(&output_resolve);
-
     for key in keys {
         match store.get_raw(&keyspace, &key)? {
             Some(stored) => {
@@ -259,31 +242,9 @@ pub async fn map_operation(
                         // Call transform
                         match runner.call_transform(&stored, metadata.type_version) {
                             Ok(result) => {
-                                // Convert result to WAVE string
-                                let memory = LinearMemory::from_optional(result.memory.as_ref());
-
-                                match output_abi.lift_to_val(
-                                    &result.value,
-                                    &Type::Id(output_type_id),
-                                    None,
-                                    &memory,
-                                ) {
-                                    Ok((val, _)) => match val_to_wave(&val, &wave_type) {
-                                        Ok(value) => match wasm_wave::to_string(&value) {
-                                            Ok(wave_str) => {
-                                                results.push((key.clone(), wave_str));
-                                            }
-                                            Err(e) => {
-                                                errors.push((key.clone(), format!("wave encode: {}", e)));
-                                            }
-                                        },
-                                        Err(e) => {
-                                            errors.push((key.clone(), format!("val to wave: {}", e)));
-                                        }
-                                    },
-                                    Err(e) => {
-                                        errors.push((key.clone(), format!("lift: {}", e)));
-                                    }
+                                match runner.stored_to_wave_string(&result) {
+                                    Ok(wave_str) => results.push((key.clone(), wave_str)),
+                                    Err(e) => errors.push((key.clone(), format!("encode: {}", e))),
                                 }
                                 transformed += 1;
                             }
@@ -376,33 +337,9 @@ pub async fn reduce_operation(
     }
 
     // Convert final state to WAVE string
-    let wave_type = runner
-        .output_wave_type()
-        .map_err(ApiError::from)?;
-
-    // Get state type info for decoding
-    let mut state_resolve = wit_parser::Resolve::new();
-    state_resolve
-        .push_str("<inline>", &config.wit_definition)
-        .map_err(|e| ApiError::invalid_wit(e.to_string()))?;
-    let state_type_id = crate::find_type_by_name(&state_resolve, &config.state_type)
-        .ok_or_else(|| ApiError::invalid_wit(format!("Type '{}' not found in WIT definition", config.state_type)))?;
-    let state_abi = CanonicalAbi::new(&state_resolve);
-
-    let memory = LinearMemory::from_optional(current_state.memory.as_ref());
-    let state_str = match state_abi.lift_to_val(
-        &current_state.value,
-        &Type::Id(state_type_id),
-        None,
-        &memory,
-    ) {
-        Ok((val, _)) => match val_to_wave(&val, &wave_type) {
-            Ok(value) => wasm_wave::to_string(&value)
-                .map_err(|e| ApiError::internal(format!("wave encode: {}", e)))?,
-            Err(e) => return Err(ApiError::internal(format!("val to wave: {}", e))),
-        },
-        Err(e) => return Err(ApiError::internal(format!("lift: {}", e))),
-    };
+    let state_str = runner
+        .stored_to_wave_string(&current_state)
+        .map_err(|e| ApiError::internal(format!("encode: {}", e)))?;
 
     let error_count = errors.len() as u32;
 
