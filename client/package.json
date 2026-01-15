@@ -1,0 +1,31 @@
+{
+  "name": "wit-kv-client",
+  "version": "0.1.0",
+  "description": "TypeScript client for wit-kv HTTP API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "wit-kv",
+    "wasm",
+    "wave",
+    "kv",
+    "key-value"
+  ],
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
