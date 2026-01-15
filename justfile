@@ -153,6 +153,29 @@ smoke-test: build build-examples
     echo "  ALL SMOKE TESTS PASSED"
     echo "========================================"
 
+# Check outdated dependencies for all projects
+check-outdated: check-outdated-root check-outdated-point-filter check-outdated-person-filter check-outdated-sum-scores check-outdated-point-to-magnitude
+
+# Check outdated dependencies for root project
+check-outdated-root:
+    cargo outdated -R
+
+# Check outdated dependencies for point-filter example
+check-outdated-point-filter:
+    cd examples/point-filter && cargo outdated -R
+
+# Check outdated dependencies for person-filter example
+check-outdated-person-filter:
+    cd examples/person-filter && cargo outdated -R
+
+# Check outdated dependencies for sum-scores example
+check-outdated-sum-scores:
+    cd examples/sum-scores && cargo outdated -R
+
+# Check outdated dependencies for point-to-magnitude example
+check-outdated-point-to-magnitude:
+    cd examples/point-to-magnitude && cargo outdated -R
+
 # Clean build artifacts
 clean:
     cargo clean
