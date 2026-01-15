@@ -108,21 +108,27 @@ wit-kv-server --config wit-kv-server.toml
 
 Base path: `/api/v1`
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check |
+All GET endpoints support content negotiation between WAVE text and canonical ABI binary formats via the `Accept` header.
+
+| Method | Path | Description | Response Type |
+|--------|------|-------------|---------------|
+| GET | `/health` | Health check | text |
+| **Databases** |
+| GET | `/databases` | List all databases | `database-list` |
 | **Types** |
-| GET | `/db/{db}/types` | List all types |
-| GET | `/db/{db}/types/{keyspace}` | Get type metadata |
-| PUT | `/db/{db}/types/{keyspace}?type_name=T` | Register type |
-| DELETE | `/db/{db}/types/{keyspace}?delete_data=bool` | Delete type |
+| GET | `/db/{db}/types` | List all keyspaces | `keyspace-list` |
+| GET | `/db/{db}/types/{keyspace}` | Get type metadata | JSON |
+| PUT | `/db/{db}/types/{keyspace}?type_name=T` | Register type | JSON |
+| DELETE | `/db/{db}/types/{keyspace}?delete_data=bool` | Delete type | - |
 | **Key-Value** |
-| GET | `/db/{db}/kv/{keyspace}?prefix=&limit=` | List keys |
-| GET | `/db/{db}/kv/{keyspace}/{key}` | Get value |
-| PUT | `/db/{db}/kv/{keyspace}/{key}` | Set value |
-| DELETE | `/db/{db}/kv/{keyspace}/{key}` | Delete value |
+| GET | `/db/{db}/kv/{keyspace}?prefix=&limit=` | List keys | `key-list` |
+| GET | `/db/{db}/kv/{keyspace}/{key}` | Get value | user type |
+| PUT | `/db/{db}/kv/{keyspace}/{key}` | Set value | - |
+| DELETE | `/db/{db}/kv/{keyspace}/{key}` | Delete value | - |
 
 ### Content Negotiation
+
+All endpoints that return data support both WAVE text and canonical ABI binary formats. The response types are defined in `kv.wit`.
 
 **Request Content-Type:**
 - `application/x-wasm-wave` or `text/plain` — WAVE text (default)
@@ -130,7 +136,7 @@ Base path: `/api/v1`
 
 **Response Accept header:**
 - `application/x-wasm-wave` — WAVE text (default)
-- `application/octet-stream` — Binary format
+- `application/octet-stream` — Binary canonical ABI encoded WIT types
 
 ### Example Usage
 
@@ -156,9 +162,17 @@ curl "http://localhost:8080/api/v1/db/default/kv/points/origin"
 curl "http://localhost:8080/api/v1/db/default/kv/points/origin" \
   -H "Accept: application/octet-stream" -o point.bin
 
-# List keys
+# List keys (WAVE format)
 curl "http://localhost:8080/api/v1/db/default/kv/points?prefix=o&limit=10"
-# ["origin"]
+# {keys: ["origin"]}
+
+# List keys (binary format)
+curl "http://localhost:8080/api/v1/db/default/kv/points" \
+  -H "Accept: application/octet-stream" -o keys.bin
+
+# List databases
+curl "http://localhost:8080/api/v1/databases"
+# {databases: [{name: "default"}]}
 ```
 
 ### TypeScript Client
