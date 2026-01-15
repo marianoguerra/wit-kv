@@ -4,28 +4,45 @@
   "description": "TypeScript client for wit-kv HTTP API",
   "type": "module",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./wit-types": {
+      "types": "./dist/wit-types.d.ts",
+      "import": "./dist/wit-types.js"
+    }
+  },
   "scripts": {
-    "build": "tsc",
-    "test": "node --test test/*.test.js",
-    "prepublishOnly": "npm run build"
+    "build": "tsc && npm run copy-ui",
+    "copy-ui": "cp ui/index.html dist/",
+    "test": "node --import tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run build",
+    "serve": "npm run build && npx serve dist"
   },
   "keywords": [
     "wit-kv",
     "wasm",
     "wave",
     "kv",
-    "key-value"
+    "key-value",
+    "canonical-abi"
   ],
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "files": [
     "dist",
-    "src"
-  ]
+    "src",
+    "ui"
+  ],
+  "sideEffects": false
 }

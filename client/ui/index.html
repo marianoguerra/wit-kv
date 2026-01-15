@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wit-kv Explorer</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --primary: #0f3460;
+      --accent: #e94560;
+      --text: #eaeaea;
+      --text-muted: #a0a0a0;
+      --success: #4ade80;
+      --error: #ef4444;
+      --border: #2d2d44;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      padding: 1.5rem 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.5rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    header p {
+      color: var(--text-muted);
+    }
+
+    .connection {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+      background: var(--surface);
+      border-radius: 8px;
+    }
+
+    .connection input {
+      flex: 1;
+    }
+
+    input, select, textarea, button {
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 0.6rem 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--primary);
+      color: var(--text);
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: var(--primary);
+      border-color: var(--border);
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 1rem;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .panel {
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+
+    .panel h2 {
+      font-size: 1rem;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .list-item {
+      padding: 0.5rem;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .list-item:hover {
+      background: var(--primary);
+    }
+
+    .list-item.selected {
+      background: var(--accent);
+    }
+
+    .list-item .name {
+      font-weight: 500;
+    }
+
+    .list-item .meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .main-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .form-row input {
+      flex: 1;
+    }
+
+    .form-row label {
+      min-width: 80px;
+      display: flex;
+      align-items: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      resize: vertical;
+      font-family: 'Consolas', 'Monaco', monospace;
+    }
+
+    .output {
+      background: var(--bg);
+      padding: 1rem;
+      border-radius: 4px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .output.error {
+      color: var(--error);
+    }
+
+    .output.success {
+      color: var(--success);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1rem;
+    }
+
+    .tab {
+      padding: 0.5rem 1rem;
+      background: var(--primary);
+      border: 1px solid var(--border);
+      border-radius: 4px 4px 0 0;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+
+    .tab.active {
+      background: var(--surface);
+      border-bottom-color: var(--surface);
+      color: var(--text);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    .status.connected {
+      background: rgba(74, 222, 128, 0.2);
+      color: var(--success);
+    }
+
+    .status.disconnected {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--error);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .format-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 768px) {
+      .panels {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>wit-kv Explorer</h1>
+      <p>Interactive client for the wit-kv HTTP API</p>
+    </header>
+
+    <div class="connection">
+      <input type="text" id="serverUrl" value="http://localhost:8080" placeholder="Server URL">
+      <input type="text" id="database" value="default" placeholder="Database">
+      <button onclick="connect()">Connect</button>
+      <span id="connectionStatus" class="status disconnected">
+        <span class="status-dot"></span>
+        Disconnected
+      </span>
+    </div>
+
+    <div class="panels">
+      <div class="sidebar">
+        <div class="panel">
+          <h2>Databases</h2>
+          <div id="databaseList" class="list">
+            <div class="list-item" style="color: var(--text-muted)">Not connected</div>
+          </div>
+          <button onclick="refreshDatabases()" class="secondary" style="margin-top: 0.5rem; width: 100%">Refresh</button>
+        </div>
+
+        <div class="panel">
+          <h2>Keyspaces</h2>
+          <div id="keyspaceList" class="list">
+            <div class="list-item" style="color: var(--text-muted)">Select a database</div>
+          </div>
+          <button onclick="refreshKeyspaces()" class="secondary" style="margin-top: 0.5rem; width: 100%">Refresh</button>
+        </div>
+
+        <div class="panel">
+          <h2>Keys</h2>
+          <div class="form-row">
+            <input type="text" id="keyPrefix" placeholder="Prefix filter">
+          </div>
+          <div id="keyList" class="list">
+            <div class="list-item" style="color: var(--text-muted)">Select a keyspace</div>
+          </div>
+          <button onclick="refreshKeys()" class="secondary" style="margin-top: 0.5rem; width: 100%">Refresh</button>
+        </div>
+      </div>
+
+      <div class="main-panel">
+        <div class="panel">
+          <div class="tabs">
+            <div class="tab active" onclick="switchTab('get')">Get/Set Value</div>
+            <div class="tab" onclick="switchTab('type')">Register Type</div>
+            <div class="tab" onclick="switchTab('raw')">Raw Request</div>
+          </div>
+
+          <div id="tab-get" class="tab-content active">
+            <div class="form-row">
+              <label>Keyspace:</label>
+              <input type="text" id="valueKeyspace" placeholder="keyspace">
+            </div>
+            <div class="form-row">
+              <label>Key:</label>
+              <input type="text" id="valueKey" placeholder="key">
+            </div>
+            <div class="form-row">
+              <label>Value:</label>
+              <div class="format-toggle">
+                <input type="checkbox" id="binaryFormat">
+                <span>Binary format</span>
+              </div>
+            </div>
+            <textarea id="valueContent" placeholder="WAVE format value, e.g.: {name: &quot;Alice&quot;, age: 30}"></textarea>
+            <div class="form-row" style="margin-top: 0.75rem">
+              <button onclick="getValue()">Get</button>
+              <button onclick="setValue()">Set</button>
+              <button onclick="deleteValue()" class="secondary">Delete</button>
+            </div>
+          </div>
+
+          <div id="tab-type" class="tab-content">
+            <div class="form-row">
+              <label>Keyspace:</label>
+              <input type="text" id="typeKeyspace" placeholder="keyspace name">
+            </div>
+            <div class="form-row">
+              <label>Type Name:</label>
+              <input type="text" id="typeName" placeholder="type name (optional)">
+            </div>
+            <textarea id="witDefinition" placeholder="package myapp:types;
+
+interface types {
+    record user {
+        name: string,
+        email: string,
+        active: bool,
+    }
+}"></textarea>
+            <div class="form-row" style="margin-top: 0.75rem">
+              <button onclick="registerType()">Register Type</button>
+              <button onclick="getTypeInfo()" class="secondary">Get Info</button>
+              <button onclick="deleteType()" class="secondary">Delete Type</button>
+            </div>
+          </div>
+
+          <div id="tab-raw" class="tab-content">
+            <div class="form-row">
+              <label>Method:</label>
+              <select id="rawMethod">
+                <option>GET</option>
+                <option>PUT</option>
+                <option>DELETE</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Path:</label>
+              <input type="text" id="rawPath" placeholder="/api/v1/databases">
+            </div>
+            <div class="form-row">
+              <label>Accept:</label>
+              <select id="rawAccept">
+                <option value="application/x-wasm-wave">WAVE (text)</option>
+                <option value="application/octet-stream">Binary</option>
+              </select>
+            </div>
+            <textarea id="rawBody" placeholder="Request body (for PUT)"></textarea>
+            <div class="form-row" style="margin-top: 0.75rem">
+              <button onclick="sendRawRequest()">Send Request</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Response</h2>
+          <div id="output" class="output">Ready</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { WitKvClient } from './index.js';
+
+    let client = null;
+    let currentDatabase = 'default';
+    let currentKeyspace = null;
+    let currentKey = null;
+
+    // Make functions available globally
+    window.connect = connect;
+    window.refreshDatabases = refreshDatabases;
+    window.refreshKeyspaces = refreshKeyspaces;
+    window.refreshKeys = refreshKeys;
+    window.switchTab = switchTab;
+    window.getValue = getValue;
+    window.setValue = setValue;
+    window.deleteValue = deleteValue;
+    window.registerType = registerType;
+    window.getTypeInfo = getTypeInfo;
+    window.deleteType = deleteType;
+    window.sendRawRequest = sendRawRequest;
+    window.selectDatabase = selectDatabase;
+    window.selectKeyspace = selectKeyspace;
+    window.selectKey = selectKey;
+
+    function setOutput(text, type = '') {
+      const output = document.getElementById('output');
+      output.textContent = text;
+      output.className = 'output ' + type;
+    }
+
+    function setStatus(connected) {
+      const status = document.getElementById('connectionStatus');
+      if (connected) {
+        status.className = 'status connected';
+        status.innerHTML = '<span class="status-dot"></span>Connected';
+      } else {
+        status.className = 'status disconnected';
+        status.innerHTML = '<span class="status-dot"></span>Disconnected';
+      }
+    }
+
+    async function connect() {
+      const url = document.getElementById('serverUrl').value;
+      const db = document.getElementById('database').value;
+
+      try {
+        client = new WitKvClient(url, db);
+        currentDatabase = db;
+
+        // Test connection
+        const health = await client.health();
+        setStatus(true);
+        setOutput('Connected: ' + health, 'success');
+
+        // Load databases
+        await refreshDatabases();
+      } catch (err) {
+        setStatus(false);
+        setOutput('Connection failed: ' + err.message, 'error');
+      }
+    }
+
+    async function refreshDatabases() {
+      if (!client) return;
+
+      try {
+        const databases = await client.listDatabases();
+        const list = document.getElementById('databaseList');
+
+        if (Array.isArray(databases) && databases.length > 0) {
+          list.innerHTML = databases.map(name =>
+            `<div class="list-item ${name === currentDatabase ? 'selected' : ''}" onclick="selectDatabase('${name}')">
+              <div class="name">${name}</div>
+            </div>`
+          ).join('');
+        } else {
+          list.innerHTML = '<div class="list-item" style="color: var(--text-muted)">No databases</div>';
+        }
+      } catch (err) {
+        setOutput('Failed to list databases: ' + err.message, 'error');
+      }
+    }
+
+    function selectDatabase(name) {
+      currentDatabase = name;
+      document.getElementById('database').value = name;
+      client = new WitKvClient(document.getElementById('serverUrl').value, name);
+
+      // Update UI
+      document.querySelectorAll('#databaseList .list-item').forEach(el => {
+        el.classList.toggle('selected', el.querySelector('.name')?.textContent === name);
+      });
+
+      refreshKeyspaces();
+    }
+
+    async function refreshKeyspaces() {
+      if (!client) return;
+
+      try {
+        const keyspaces = await client.listTypes();
+        const list = document.getElementById('keyspaceList');
+
+        if (Array.isArray(keyspaces) && keyspaces.length > 0) {
+          list.innerHTML = keyspaces.map(ks =>
+            `<div class="list-item ${ks.name === currentKeyspace ? 'selected' : ''}" onclick="selectKeyspace('${ks.name}')">
+              <div class="name">${ks.name}</div>
+              <div class="meta">${ks.type_name} v${ks.type_version.major}.${ks.type_version.minor}.${ks.type_version.patch}</div>
+            </div>`
+          ).join('');
+        } else {
+          list.innerHTML = '<div class="list-item" style="color: var(--text-muted)">No keyspaces</div>';
+        }
+      } catch (err) {
+        setOutput('Failed to list keyspaces: ' + err.message, 'error');
+      }
+    }
+
+    function selectKeyspace(name) {
+      currentKeyspace = name;
+      document.getElementById('valueKeyspace').value = name;
+      document.getElementById('typeKeyspace').value = name;
+
+      // Update UI
+      document.querySelectorAll('#keyspaceList .list-item').forEach(el => {
+        el.classList.toggle('selected', el.querySelector('.name')?.textContent === name);
+      });
+
+      refreshKeys();
+    }
+
+    async function refreshKeys() {
+      if (!client || !currentKeyspace) return;
+
+      try {
+        const prefix = document.getElementById('keyPrefix').value || undefined;
+        const keys = await client.list(currentKeyspace, { prefix, limit: 100 });
+        const list = document.getElementById('keyList');
+
+        if (Array.isArray(keys) && keys.length > 0) {
+          list.innerHTML = keys.map(key =>
+            `<div class="list-item ${key === currentKey ? 'selected' : ''}" onclick="selectKey('${key}')">
+              <div class="name">${key}</div>
+            </div>`
+          ).join('');
+        } else {
+          list.innerHTML = '<div class="list-item" style="color: var(--text-muted)">No keys</div>';
+        }
+      } catch (err) {
+        setOutput('Failed to list keys: ' + err.message, 'error');
+      }
+    }
+
+    function selectKey(key) {
+      currentKey = key;
+      document.getElementById('valueKey').value = key;
+
+      // Update UI
+      document.querySelectorAll('#keyList .list-item').forEach(el => {
+        el.classList.toggle('selected', el.querySelector('.name')?.textContent === key);
+      });
+
+      getValue();
+    }
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+
+      document.querySelector(`.tab:nth-child(${name === 'get' ? 1 : name === 'type' ? 2 : 3})`).classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+    }
+
+    async function getValue() {
+      if (!client) {
+        setOutput('Not connected', 'error');
+        return;
+      }
+
+      const keyspace = document.getElementById('valueKeyspace').value;
+      const key = document.getElementById('valueKey').value;
+      const binary = document.getElementById('binaryFormat').checked;
+
+      if (!keyspace || !key) {
+        setOutput('Please enter keyspace and key', 'error');
+        return;
+      }
+
+      try {
+        const value = await client.get(keyspace, key, { format: binary ? 'binary' : 'wave' });
+
+        if (value instanceof ArrayBuffer) {
+          const bytes = new Uint8Array(value);
+          const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+          setOutput(`Binary (${bytes.length} bytes):\n${hex}`, 'success');
+        } else {
+          document.getElementById('valueContent').value = value;
+          setOutput(value, 'success');
+        }
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+
+    async function setValue() {
+      if (!client) {
+        setOutput('Not connected', 'error');
+        return;
+      }
+
+      const keyspace = document.getElementById('valueKeyspace').value;
+      const key = document.getElementById('valueKey').value;
+      const value = document.getElementById('valueContent').value;
+
+      if (!keyspace || !key || !value) {
+        setOutput('Please enter keyspace, key, and value', 'error');
+        return;
+      }
+
+      try {
+        await client.set(keyspace, key, value);
+        setOutput('Value set successfully', 'success');
+        refreshKeys();
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteValue() {
+      if (!client) {
+        setOutput('Not connected', 'error');
+        return;
+      }
+
+      const keyspace = document.getElementById('valueKeyspace').value;
+      const key = document.getElementById('valueKey').value;
+
+      if (!keyspace || !key) {
+        setOutput('Please enter keyspace and key', 'error');
+        return;
+      }
+
+      try {
+        await client.delete(keyspace, key);
+        setOutput('Value deleted successfully', 'success');
+        refreshKeys();
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+
+    async function registerType() {
+      if (!client) {
+        setOutput('Not connected', 'error');
+        return;
+      }
+
+      const keyspace = document.getElementById('typeKeyspace').value;
+      const typeName = document.getElementById('typeName').value || undefined;
+      const witDef = document.getElementById('witDefinition').value;
+
+      if (!keyspace || !witDef) {
+        setOutput('Please enter keyspace and WIT definition', 'error');
+        return;
+      }
+
+      try {
+        const result = await client.setType(keyspace, witDef, { typeName });
+        setOutput('Type registered:\n' + JSON.stringify(result, null, 2), 'success');
+        refreshKeyspaces();
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+
+    async function getTypeInfo() {
+      if (!client) {
+        setOutput('Not connected', 'error');
+        return;
+      }
+
+      const keyspace = document.getElementById('typeKeyspace').value;
+
+      if (!keyspace) {
+        setOutput('Please enter keyspace', 'error');
+        return;
+      }
+
+      try {
+        const info = await client.getType(keyspace);
+        setOutput(JSON.stringify(info, null, 2), 'success');
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteType() {
+      if (!client) {
+        setOutput('Not connected', 'error');
+        return;
+      }
+
+      const keyspace = document.getElementById('typeKeyspace').value;
+
+      if (!keyspace) {
+        setOutput('Please enter keyspace', 'error');
+        return;
+      }
+
+      try {
+        await client.deleteType(keyspace, { deleteData: true });
+        setOutput('Type deleted successfully', 'success');
+        refreshKeyspaces();
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+
+    async function sendRawRequest() {
+      const url = document.getElementById('serverUrl').value;
+      const method = document.getElementById('rawMethod').value;
+      const path = document.getElementById('rawPath').value;
+      const accept = document.getElementById('rawAccept').value;
+      const body = document.getElementById('rawBody').value;
+
+      if (!path) {
+        setOutput('Please enter a path', 'error');
+        return;
+      }
+
+      try {
+        const options = {
+          method,
+          headers: {
+            'Accept': accept,
+          },
+        };
+
+        if (method === 'PUT' && body) {
+          options.headers['Content-Type'] = 'application/x-wasm-wave';
+          options.body = body;
+        }
+
+        const response = await fetch(url + path, options);
+
+        if (!response.ok) {
+          const err = await response.text();
+          setOutput(`HTTP ${response.status}: ${err}`, 'error');
+          return;
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+
+        if (contentType.includes('octet-stream')) {
+          const buffer = await response.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+          setOutput(`Binary (${bytes.length} bytes):\n${hex}`, 'success');
+        } else {
+          const text = await response.text();
+          setOutput(text, 'success');
+        }
+      } catch (err) {
+        setOutput('Error: ' + err.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>
