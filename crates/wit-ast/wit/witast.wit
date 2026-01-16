@@ -1,0 +1,227 @@
+package wit-kv:wit-ast;
+
+interface types {
+    // =========================================================================
+    // Binary Export
+    // =========================================================================
+
+    /// Binary export format for transferring canonical ABI encoded values
+    record binary-export {
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+        /// Linear memory bytes for variable-length types (strings, lists)
+        memory: option<list<u8>>,
+    }
+
+    // =========================================================================
+    // WIT AST Types (based on wit-parser data structures)
+    // =========================================================================
+
+    /// Primitive type kinds
+    enum primitive-kind {
+        prim-bool,
+        prim-u8,
+        prim-u16,
+        prim-u32,
+        prim-u64,
+        prim-s8,
+        prim-s16,
+        prim-s32,
+        prim-s64,
+        prim-f32,
+        prim-f64,
+        prim-char,
+        prim-string,
+    }
+
+    /// A field in a record type
+    record type-field {
+        name: string,
+        ty: type-ref,
+    }
+
+    /// A case in a variant type
+    record type-case {
+        name: string,
+        ty: option<type-ref>,
+    }
+
+    /// Type definition kinds (mirrors wit_parser::TypeDefKind)
+    variant type-def-kind {
+        /// Alias to another type
+        type-alias(type-ref),
+        /// Record with named fields
+        type-record(list<type-field>),
+        /// Tuple with positional elements
+        type-tuple(list<type-ref>),
+        /// Flags (bitset)
+        type-flags(list<string>),
+        /// Enum (discriminated, no payloads)
+        type-enum(list<string>),
+        /// Variant (discriminated with optional payloads)
+        type-variant(list<type-case>),
+        /// Option<T>
+        type-option(type-ref),
+        /// Result<T, E>
+        type-result(tuple<option<type-ref>, option<type-ref>>),
+        /// List<T>
+        type-list(type-ref),
+    }
+
+    /// Reference to a type (primitive or defined)
+    variant type-ref {
+        /// A primitive type
+        primitive(primitive-kind),
+        /// Index into the types list
+        defined(u32),
+    }
+
+    /// A named type definition
+    record type-def {
+        name: string,
+        kind: type-def-kind,
+    }
+
+    /// Parsed WIT AST - opaque handle for reuse
+    resource wit-ast {
+        /// Get all type definitions
+        types: func() -> list<type-def>;
+        /// Find type index by name
+        find-type: func(name: string) -> option<u32>;
+    }
+
+    // =========================================================================
+    // WIT Value Types (runtime values)
+    // Uses index-based approach to avoid recursive type definitions
+    // =========================================================================
+
+    /// Index into a value-tree's nodes array
+    type value-index = u32;
+
+    /// Primitive value variants
+    variant primitive-value {
+        bool-val(bool),
+        u8-val(u8),
+        u16-val(u16),
+        u32-val(u32),
+        u64-val(u64),
+        s8-val(s8),
+        s16-val(s16),
+        s32-val(s32),
+        s64-val(s64),
+        f32-val(f32),
+        f64-val(f64),
+        char-val(char),
+        string-val(string),
+    }
+
+    /// A field with name and value index (instead of direct value)
+    record field-ref {
+        name: string,
+        value-idx: value-index,
+    }
+
+    /// A variant case with name and optional payload index
+    record variant-ref {
+        name: string,
+        payload-idx: option<value-index>,
+    }
+
+    /// A WIT value node - uses indices to reference child values
+    variant wit-value-node {
+        /// Primitive types (bool, integers, floats, char, string)
+        primitive(primitive-value),
+        /// Record: list of named fields (by index)
+        record-val(list<field-ref>),
+        /// Tuple: ordered list of value indices
+        tuple-val(list<value-index>),
+        /// List: homogeneous sequence of value indices
+        list-val(list<value-index>),
+        /// Enum: named case with no payload
+        enum-val(string),
+        /// Variant: named case with optional payload index
+        variant-val(variant-ref),
+        /// Option: some (index) or none
+        option-val(option<value-index>),
+        /// Result: ok or err with optional payload indices
+        result-val(result<option<value-index>, option<value-index>>),
+        /// Flags: list of set flag names
+        flags-val(list<string>),
+    }
+
+    /// A complete value tree containing all nodes
+    /// The root is always at index 0
+    record value-tree {
+        /// All value nodes in depth-first order
+        nodes: list<wit-value-node>,
+    }
+
+    // =========================================================================
+    // Errors
+    // =========================================================================
+
+    /// Error from parsing WIT definition
+    record parse-error {
+        message: string,
+        line: option<u32>,
+        column: option<u32>,
+    }
+
+    /// Error from lifting binary data
+    record lift-error {
+        message: string,
+        context: option<string>,
+    }
+
+    /// Error from WAVE formatting/parsing
+    record format-error {
+        message: string,
+    }
+}
+
+/// Parser interface for WIT definitions
+interface parser {
+    use types.{wit-ast, parse-error};
+
+    /// Parse a WIT definition string into a reusable AST
+    parse-wit: func(definition: string) -> result<wit-ast, parse-error>;
+}
+
+/// Lifter interface for binary canonical ABI data
+interface lifter {
+    use types.{wit-ast, binary-export, value-tree, lift-error};
+
+    /// Lift binary canonical ABI data to a WIT value tree
+    lift: func(
+        ast: borrow<wit-ast>,
+        type-name: string,
+        data: binary-export
+    ) -> result<value-tree, lift-error>;
+}
+
+/// Formatter interface for WAVE text format
+interface formatter {
+    use types.{wit-ast, value-tree, format-error};
+
+    /// Convert a value-tree to WAVE text format
+    value-tree-to-wave: func(
+        ast: borrow<wit-ast>,
+        type-name: string,
+        value: value-tree
+    ) -> result<string, format-error>;
+
+    /// Parse WAVE text into a value-tree (requires AST for type info)
+    wave-to-value-tree: func(
+        ast: borrow<wit-ast>,
+        type-name: string,
+        wave-text: string
+    ) -> result<value-tree, format-error>;
+}
+
+/// World for the witast decoder component
+world wit-ast-decoder {
+    export types;
+    export parser;
+    export lifter;
+    export formatter;
+}

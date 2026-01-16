@@ -59,6 +59,10 @@ dist: build-all
     echo ""
     echo "To run: cd dist && ./wit-kv-server"
 
+# Build wit-ast wasm component
+build-wit-ast:
+    cd crates/wit-ast && cargo build --release --target wasm32-unknown-unknown
+
 # Build all example wasm components
 build-examples: build-point-filter build-person-filter build-sum-scores build-point-to-magnitude
 
@@ -205,11 +209,15 @@ smoke-test: build build-examples
     echo "========================================"
 
 # Check outdated dependencies for all projects
-check-outdated: check-outdated-root check-outdated-point-filter check-outdated-person-filter check-outdated-sum-scores check-outdated-point-to-magnitude
+check-outdated: check-outdated-root check-outdated-wit-ast check-outdated-point-filter check-outdated-person-filter check-outdated-sum-scores check-outdated-point-to-magnitude
 
 # Check outdated dependencies for root project
 check-outdated-root:
     cargo outdated -R
+
+# Check outdated dependencies for wit-ast
+check-outdated-wit-ast:
+    cd crates/wit-ast && cargo outdated -R
 
 # Check outdated dependencies for point-filter example
 check-outdated-point-filter:
@@ -232,6 +240,7 @@ clean:
     cargo clean
     rm -rf dist
     rm -rf client/dist
+    rm -rf crates/wit-ast/target
     rm -rf examples/point-filter/target
     rm -rf examples/person-filter/target
     rm -rf examples/sum-scores/target

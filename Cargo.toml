@@ -2,6 +2,7 @@
 resolver = "2"
 members = ["crates/*"]
 exclude = [
+    "crates/wit-ast",
     "examples/person-filter",
     "examples/point-filter",
     "examples/point-to-magnitude",
@@ -24,8 +25,12 @@ wit-kv = { path = "crates/wit-kv" }
 # Core dependencies (always needed)
 anyhow = "1"
 thiserror = "2"
-wit-parser = "0.244"
-wasm-wave = { version = "0.244", features = ["wit"] }
+wit-parser = { version = "0.244", default-features = false }
+wasm-wave = { version = "0.244", default-features = false, features = ["wit"] }
+wit-bindgen = "0.51"
+
+# Testing
+proptest = "1.4"
 
 # CLI support
 clap = { version = "4", features = ["derive", "env"] }

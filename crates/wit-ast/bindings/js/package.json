@@ -1,0 +1,29 @@
+{
+  "name": "wit-ast-js",
+  "version": "0.1.0",
+  "description": "JavaScript/TypeScript bindings for wit-ast WASM component",
+  "type": "module",
+  "main": "dist/witast.js",
+  "types": "dist/witast.d.ts",
+  "scripts": {
+    "build:wasm": "cargo build --manifest-path ../../Cargo.toml --target wasm32-unknown-unknown --release",
+    "build:component": "wasm-tools component new ../../target/wasm32-unknown-unknown/release/wit_ast.wasm -o wit-ast.wasm --adapt wasi_snapshot_preview1=adapters/wasi_snapshot_preview1.reactor.wasm 2>/dev/null || wasm-tools component new ../../target/wasm32-unknown-unknown/release/wit_ast.wasm -o wit-ast.wasm",
+    "transpile": "jco transpile wit-ast.wasm -o dist --name witast",
+    "build": "npm run build:wasm && npm run build:component && npm run transpile",
+    "example": "node example.mjs",
+    "serve": "npx serve . -p 3000",
+    "demo": "npm run build && npm run serve",
+    "all": "npm run build && npm run example"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "^1.8.0"
+  },
+  "keywords": [
+    "wasm",
+    "wit",
+    "wave",
+    "webassembly",
+    "component-model"
+  ],
+  "license": "MIT"
+}

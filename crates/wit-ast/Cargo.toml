@@ -1,0 +1,28 @@
+[package]
+name = "wit-ast"
+version = "0.1.0"
+edition = "2024"
+description = "WebAssembly component for parsing WIT definitions and working with WAVE format values"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.51"
+wit-parser = { version = "0.244", default-features = false }
+wasm-wave = { version = "0.244", default-features = false, features = ["wit"] }
+
+[dev-dependencies]
+proptest = "1.4"
+
+[package.metadata.component]
+package = "wit-kv:wit-ast"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"

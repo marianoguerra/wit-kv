@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wit-ast-js Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .toolbar label {
+      font-weight: 500;
+    }
+
+    select, button, input {
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    select {
+      min-width: 200px;
+    }
+
+    button {
+      background: #0066cc;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background: #0052a3;
+    }
+
+    button:disabled {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #666;
+    }
+
+    button.secondary:hover {
+      background: #555;
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .panels {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .panel h2 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      color: #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel h2 .badge {
+      font-size: 12px;
+      background: #e0e0e0;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: normal;
+    }
+
+    .panel h2 .badge.success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .panel h2 .badge.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    textarea {
+      width: 100%;
+      font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+      font-size: 13px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #0066cc;
+    }
+
+    #witDefinition {
+      height: 300px;
+    }
+
+    #waveInput {
+      height: 100px;
+    }
+
+    #waveOutput {
+      height: 100px;
+      background: #f9f9f9;
+    }
+
+    .wave-section {
+      margin-bottom: 15px;
+    }
+
+    .wave-section label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 5px;
+    }
+
+    .wave-controls {
+      display: flex;
+      gap: 10px;
+      margin: 10px 0;
+      align-items: center;
+    }
+
+    .wave-controls select {
+      flex: 1;
+    }
+
+    .types-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 13px;
+      background: #f9f9f9;
+    }
+
+    .type-item {
+      padding: 4px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .type-item:last-child {
+      border-bottom: none;
+    }
+
+    .type-name {
+      font-weight: bold;
+      color: #0066cc;
+    }
+
+    .type-kind {
+      color: #666;
+      margin-left: 10px;
+    }
+
+    .value-tree {
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      background: #f9f9f9;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    .success {
+      color: #155724;
+      background: #d4edda;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    .info {
+      color: #0c5460;
+      background: #d1ecf1;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .section-divider {
+      border-top: 1px solid #eee;
+      margin: 15px 0;
+      padding-top: 15px;
+    }
+
+    .template-desc {
+      font-size: 13px;
+      color: #666;
+      margin-top: 5px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>wit-ast-js Demo</h1>
+    <p class="subtitle">Interactive playground for parsing WIT definitions and working with WAVE format values</p>
+
+    <div class="toolbar">
+      <label for="templateSelect">Load Template:</label>
+      <select id="templateSelect">
+        <option value="">-- Select a template --</option>
+        <optgroup label="Basic Types">
+          <option value="primitives">Primitives (bool, numbers, string, char)</option>
+          <option value="record-simple">Simple Record (person)</option>
+          <option value="record-point">Point Record (coordinates)</option>
+          <option value="tuple">Tuple Types</option>
+        </optgroup>
+        <optgroup label="Algebraic Types">
+          <option value="enum">Enum (colors)</option>
+          <option value="variant">Variant (status with payloads)</option>
+          <option value="flags">Flags (permissions bitset)</option>
+        </optgroup>
+        <optgroup label="Container Types">
+          <option value="option">Option Types</option>
+          <option value="result">Result Types</option>
+          <option value="list">List Types</option>
+        </optgroup>
+        <optgroup label="Complex Examples">
+          <option value="nested-option">Deeply Nested Options</option>
+          <option value="nested-record">Nested Records</option>
+          <option value="user-system">User System (comprehensive)</option>
+        </optgroup>
+      </select>
+      <button id="loadTemplateBtn" class="secondary">Load Template</button>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h2>
+          WIT Definition
+          <span id="parseStatus" class="badge hidden"></span>
+        </h2>
+        <textarea id="witDefinition" placeholder="Enter your WIT definition here..."></textarea>
+        <div style="margin-top: 10px;">
+          <button id="parseWitBtn">Parse WIT</button>
+        </div>
+        <div id="parseError" class="error hidden"></div>
+
+        <div class="section-divider">
+          <h2>Type Definitions <span id="typeCount" class="badge">0 types</span></h2>
+          <div id="typesList" class="types-list">
+            <em>Parse a WIT definition to see types</em>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>WAVE Format Converter</h2>
+
+        <div class="wave-section">
+          <label for="typeSelect">Select Type:</label>
+          <div class="wave-controls">
+            <select id="typeSelect" disabled>
+              <option value="">-- Parse WIT first --</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="wave-section">
+          <label for="waveInput">WAVE Input:</label>
+          <textarea id="waveInput" placeholder='Enter WAVE text, e.g.: {name: "Alice", age: 30}'></textarea>
+          <div style="margin-top: 10px; display: flex; gap: 10px;">
+            <button id="parseWaveBtn" disabled>Parse to Value Tree</button>
+            <button id="roundtripBtn" class="secondary" disabled>Roundtrip</button>
+          </div>
+        </div>
+
+        <div class="wave-section">
+          <label for="waveOutput">WAVE Output:</label>
+          <textarea id="waveOutput" readonly placeholder="Output will appear here..."></textarea>
+        </div>
+
+        <div id="waveError" class="error hidden"></div>
+        <div id="waveSuccess" class="success hidden"></div>
+
+        <div class="section-divider">
+          <h2>Value Tree <span id="nodeCount" class="badge">0 nodes</span></h2>
+          <div id="valueTree" class="value-tree">
+            <em>Parse WAVE text to see the value tree</em>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Templates with WIT definitions and example WAVE values
+    const templates = {
+      'primitives': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  // Type aliases for primitives (for demonstration)
+  type my-bool = bool;
+  type my-u32 = u32;
+  type my-s64 = s64;
+  type my-f64 = f64;
+  type my-char = char;
+  type my-string = string;
+
+  // A record with various primitive fields
+  record primitives-demo {
+    flag: bool,
+    count: u32,
+    big-number: u64,
+    signed: s32,
+    ratio: f64,
+    letter: char,
+    message: string,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'primitives-demo',
+        wave: `{flag: true, count: 42, big-number: 9999999999, signed: -100, ratio: 3.14159, letter: 'A', message: "Hello, World!"}`
+      },
+
+      'record-simple': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  record person {
+    name: string,
+    age: u32,
+    active: bool,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'person',
+        wave: `{name: "Alice", age: 30, active: true}`
+      },
+
+      'record-point': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  record point {
+    x: f64,
+    y: f64,
+  }
+
+  record point3d {
+    x: f64,
+    y: f64,
+    z: f64,
+  }
+
+  record rect {
+    top-left: point,
+    bottom-right: point,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'point',
+        wave: `{x: 3.14, y: 2.71}`
+      },
+
+      'tuple': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  // Tuple types
+  type pair = tuple<u32, u32>;
+  type triple = tuple<string, u32, bool>;
+  type coordinate = tuple<f64, f64, f64>;
+
+  record with-tuple {
+    id: u32,
+    data: tuple<string, s32>,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'pair',
+        wave: `(10, 20)`
+      },
+
+      'enum': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  enum color {
+    red,
+    green,
+    blue,
+    yellow,
+    cyan,
+    magenta,
+  }
+
+  enum direction {
+    north,
+    south,
+    east,
+    west,
+  }
+
+  enum log-level {
+    debug,
+    info,
+    warn,
+    error,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'color',
+        wave: `green`
+      },
+
+      'variant': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  variant status {
+    pending,
+    running(u32),
+    complete(string),
+    failed(string),
+  }
+
+  variant json-value {
+    null,
+    bool(bool),
+    number(f64),
+    text(string),
+  }
+
+  variant maybe-error {
+    ok,
+    error(string),
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'status',
+        wave: `complete("Task finished successfully")`
+      },
+
+      'flags': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  flags permissions {
+    read,
+    write,
+    execute,
+    delete,
+  }
+
+  flags file-mode {
+    owner-read,
+    owner-write,
+    owner-exec,
+    group-read,
+    group-write,
+    group-exec,
+    other-read,
+    other-write,
+    other-exec,
+  }
+
+  flags features {
+    dark-mode,
+    notifications,
+    auto-save,
+    spell-check,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'permissions',
+        wave: `{read, write}`
+      },
+
+      'option': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  type optional-string = option<string>;
+  type optional-number = option<u32>;
+
+  record user-profile {
+    username: string,
+    email: option<string>,
+    age: option<u32>,
+    bio: option<string>,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'user-profile',
+        wave: `{username: "alice", email: some("alice@example.com"), age: some(25), bio: none}`
+      },
+
+      'result': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  type parse-result = result<u32, string>;
+  type void-result = result<_, string>;
+  type infallible = result<string>;
+
+  record operation-response {
+    id: string,
+    result: result<string, string>,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'parse-result',
+        wave: `ok(42)`
+      },
+
+      'list': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  type numbers = list<u32>;
+  type strings = list<string>;
+  type matrix = list<list<f64>>;
+
+  record shopping-cart {
+    items: list<string>,
+    quantities: list<u32>,
+    total: f64,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'numbers',
+        wave: `[1, 2, 3, 4, 5]`
+      },
+
+      'nested-option': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  type maybe-maybe-string = option<option<string>>;
+  type triple-option = option<option<option<u32>>>;
+
+  record deeply-optional {
+    value: option<option<option<string>>>,
+    simple: option<u32>,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'maybe-maybe-string',
+        wave: `some(some("deeply nested value"))`
+      },
+
+      'nested-record': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  record address {
+    street: string,
+    city: string,
+    zip: string,
+  }
+
+  record contact {
+    email: string,
+    phone: option<string>,
+  }
+
+  record person {
+    name: string,
+    age: u32,
+    address: address,
+    contact: contact,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'person',
+        wave: `{name: "Bob", age: 35, address: {street: "123 Main St", city: "Springfield", zip: "12345"}, contact: {email: "bob@example.com", phone: some("555-1234")}}`
+      },
+
+      'user-system': {
+        wit: `package example:types@0.1.0;
+
+interface types {
+  enum role {
+    guest,
+    user,
+    moderator,
+    admin,
+  }
+
+  flags permissions {
+    read,
+    write,
+    delete,
+    manage-users,
+  }
+
+  variant auth-status {
+    anonymous,
+    authenticated(string),
+    expired,
+    banned(string),
+  }
+
+  record profile {
+    display-name: string,
+    bio: option<string>,
+    avatar-url: option<string>,
+  }
+
+  record user {
+    id: u64,
+    username: string,
+    email: string,
+    role: role,
+    permissions: permissions,
+    profile: profile,
+    auth: auth-status,
+    login-count: u32,
+    tags: list<string>,
+  }
+}
+
+world example {
+  export types;
+}`,
+        type: 'user',
+        wave: `{id: 12345, username: "alice", email: "alice@example.com", role: admin, permissions: {read, write, manage-users}, profile: {display-name: "Alice Smith", bio: some("Software developer"), avatar-url: none}, auth: authenticated("session_abc123"), login-count: 42, tags: ["developer", "early-adopter"]}`
+      }
+    };
+
+    // DOM elements
+    const templateSelect = document.getElementById('templateSelect');
+    const loadTemplateBtn = document.getElementById('loadTemplateBtn');
+    const witDefinition = document.getElementById('witDefinition');
+    const parseWitBtn = document.getElementById('parseWitBtn');
+    const parseStatus = document.getElementById('parseStatus');
+    const parseError = document.getElementById('parseError');
+    const typesList = document.getElementById('typesList');
+    const typeCount = document.getElementById('typeCount');
+    const typeSelect = document.getElementById('typeSelect');
+    const waveInput = document.getElementById('waveInput');
+    const waveOutput = document.getElementById('waveOutput');
+    const parseWaveBtn = document.getElementById('parseWaveBtn');
+    const roundtripBtn = document.getElementById('roundtripBtn');
+    const waveError = document.getElementById('waveError');
+    const waveSuccess = document.getElementById('waveSuccess');
+    const valueTree = document.getElementById('valueTree');
+    const nodeCount = document.getElementById('nodeCount');
+
+    // State
+    let parser = null;
+    let formatter = null;
+    let currentAst = null;
+    let currentTemplate = null;
+
+    // Initialize the module
+    async function init() {
+      try {
+        const module = await import('./dist/witast.js');
+        parser = module.parser;
+        formatter = module.formatter;
+        console.log('wit-ast-js loaded successfully');
+      } catch (e) {
+        console.error('Failed to load wit-ast-js:', e);
+        showError(parseError, 'Failed to load WASM module. Make sure to run "npm run build" first and serve this file from a web server.');
+      }
+    }
+
+    // Utility functions
+    function showError(element, message) {
+      element.textContent = message;
+      element.classList.remove('hidden');
+    }
+
+    function hideError(element) {
+      element.classList.add('hidden');
+    }
+
+    function showSuccess(element, message) {
+      element.textContent = message;
+      element.classList.remove('hidden');
+      setTimeout(() => element.classList.add('hidden'), 3000);
+    }
+
+    function formatTypeKind(kind) {
+      switch (kind.tag) {
+        case 'type-record': {
+          const fields = kind.val.map(f => f.name).join(', ');
+          return `record { ${fields} }`;
+        }
+        case 'type-tuple':
+          return `tuple<${kind.val.length} elements>`;
+        case 'type-enum':
+          return `enum { ${kind.val.join(', ')} }`;
+        case 'type-variant': {
+          const cases = kind.val.map(c => c.name).join(', ');
+          return `variant { ${cases} }`;
+        }
+        case 'type-flags':
+          return `flags { ${kind.val.join(', ')} }`;
+        case 'type-option':
+          return `option<${formatTypeRef(kind.val)}>`;
+        case 'type-result': {
+          const ok = kind.val[0] ? formatTypeRef(kind.val[0]) : '_';
+          const err = kind.val[1] ? formatTypeRef(kind.val[1]) : '_';
+          return `result<${ok}, ${err}>`;
+        }
+        case 'type-list':
+          return `list<${formatTypeRef(kind.val)}>`;
+        case 'type-alias':
+          return `alias -> ${formatTypeRef(kind.val)}`;
+        default:
+          return JSON.stringify(kind);
+      }
+    }
+
+    function formatTypeRef(ref) {
+      if (ref.tag === 'primitive') {
+        return ref.val.replace('prim-', '');
+      }
+      return `type[${ref.val}]`;
+    }
+
+    function formatValueTree(tree) {
+      return JSON.stringify(tree, (key, value) => {
+        if (typeof value === 'bigint') {
+          return value.toString() + 'n';
+        }
+        if (value instanceof Uint32Array) {
+          return Array.from(value);
+        }
+        return value;
+      }, 2);
+    }
+
+    // Event handlers
+    loadTemplateBtn.addEventListener('click', () => {
+      const templateId = templateSelect.value;
+      if (!templateId) return;
+
+      const template = templates[templateId];
+      if (!template) return;
+
+      currentTemplate = template;
+      witDefinition.value = template.wit;
+      waveInput.value = template.wave;
+
+      // Auto-parse the WIT
+      parseWitBtn.click();
+    });
+
+    parseWitBtn.addEventListener('click', () => {
+      if (!parser) {
+        showError(parseError, 'WASM module not loaded yet');
+        return;
+      }
+
+      hideError(parseError);
+      const definition = witDefinition.value.trim();
+
+      if (!definition) {
+        showError(parseError, 'Please enter a WIT definition');
+        return;
+      }
+
+      try {
+        currentAst = parser.parseWit(definition);
+
+        // Update status
+        parseStatus.textContent = 'Parsed';
+        parseStatus.classList.remove('hidden', 'error');
+        parseStatus.classList.add('success');
+
+        // Get and display types
+        const types = currentAst.types();
+        typeCount.textContent = `${types.length} types`;
+
+        if (types.length === 0) {
+          typesList.innerHTML = '<em>No types found in definition</em>';
+          typeSelect.innerHTML = '<option value="">-- No types available --</option>';
+          typeSelect.disabled = true;
+          parseWaveBtn.disabled = true;
+          roundtripBtn.disabled = true;
+        } else {
+          // Display types list
+          typesList.innerHTML = types.map(t =>
+            `<div class="type-item">
+              <span class="type-name">${t.name}</span>
+              <span class="type-kind">${formatTypeKind(t.kind)}</span>
+            </div>`
+          ).join('');
+
+          // Populate type select
+          typeSelect.innerHTML = types.map(t =>
+            `<option value="${t.name}">${t.name}</option>`
+          ).join('');
+          typeSelect.disabled = false;
+          parseWaveBtn.disabled = false;
+          roundtripBtn.disabled = false;
+
+          // If we have a current template, select its type
+          if (currentTemplate && currentTemplate.type) {
+            const typeOption = Array.from(typeSelect.options).find(
+              opt => opt.value === currentTemplate.type
+            );
+            if (typeOption) {
+              typeSelect.value = currentTemplate.type;
+            }
+          }
+        }
+      } catch (e) {
+        parseStatus.textContent = 'Error';
+        parseStatus.classList.remove('hidden', 'success');
+        parseStatus.classList.add('error');
+
+        let errorMsg = e.message || String(e);
+        if (e.line !== undefined) {
+          errorMsg += ` (line ${e.line}, column ${e.column})`;
+        }
+        showError(parseError, errorMsg);
+
+        currentAst = null;
+        typesList.innerHTML = '<em>Parse error - fix the WIT definition</em>';
+        typeSelect.innerHTML = '<option value="">-- Parse WIT first --</option>';
+        typeSelect.disabled = true;
+        parseWaveBtn.disabled = true;
+        roundtripBtn.disabled = true;
+      }
+    });
+
+    parseWaveBtn.addEventListener('click', () => {
+      if (!formatter || !currentAst) {
+        showError(waveError, 'Parse a WIT definition first');
+        return;
+      }
+
+      hideError(waveError);
+      const typeName = typeSelect.value;
+      const waveText = waveInput.value.trim();
+
+      if (!typeName) {
+        showError(waveError, 'Please select a type');
+        return;
+      }
+
+      if (!waveText) {
+        showError(waveError, 'Please enter WAVE text');
+        return;
+      }
+
+      try {
+        const tree = formatter.waveToValueTree(currentAst, typeName, waveText);
+
+        // Display value tree
+        valueTree.textContent = formatValueTree(tree);
+        nodeCount.textContent = `${tree.nodes.length} nodes`;
+
+        showSuccess(waveSuccess, 'WAVE parsed successfully!');
+      } catch (e) {
+        showError(waveError, e.message || String(e));
+        valueTree.innerHTML = '<em>Parse error</em>';
+        nodeCount.textContent = '0 nodes';
+      }
+    });
+
+    roundtripBtn.addEventListener('click', () => {
+      if (!formatter || !currentAst) {
+        showError(waveError, 'Parse a WIT definition first');
+        return;
+      }
+
+      hideError(waveError);
+      const typeName = typeSelect.value;
+      const waveText = waveInput.value.trim();
+
+      if (!typeName) {
+        showError(waveError, 'Please select a type');
+        return;
+      }
+
+      if (!waveText) {
+        showError(waveError, 'Please enter WAVE text');
+        return;
+      }
+
+      try {
+        // Parse to value tree
+        const tree = formatter.waveToValueTree(currentAst, typeName, waveText);
+
+        // Display value tree
+        valueTree.textContent = formatValueTree(tree);
+        nodeCount.textContent = `${tree.nodes.length} nodes`;
+
+        // Convert back to WAVE
+        const output = formatter.valueTreeToWave(currentAst, typeName, tree);
+        waveOutput.value = output;
+
+        showSuccess(waveSuccess, 'Roundtrip successful!');
+      } catch (e) {
+        showError(waveError, e.message || String(e));
+        waveOutput.value = '';
+        valueTree.innerHTML = '<em>Error during roundtrip</em>';
+        nodeCount.textContent = '0 nodes';
+      }
+    });
+
+    // Initialize on load
+    init();
+  </script>
+</body>
+</html>
