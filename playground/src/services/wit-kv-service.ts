@@ -201,7 +201,7 @@ export class WitKvService {
     formData.append('module', new Blob([moduleBytes]), 'module.wasm');
     formData.append('config', JSON.stringify(config));
 
-    const response = await fetch(`/api/${this.database}/map/${keyspace}`, {
+    const response = await fetch(`/api/v1/db/${this.database}/map/${keyspace}`, {
       method: 'POST',
       body: formData,
     });
@@ -226,7 +226,7 @@ export class WitKvService {
     formData.append('module', new Blob([moduleBytes]), 'module.wasm');
     formData.append('config', JSON.stringify(config));
 
-    const response = await fetch(`/api/${this.database}/reduce/${keyspace}`, {
+    const response = await fetch(`/api/v1/db/${this.database}/reduce/${keyspace}`, {
       method: 'POST',
       body: formData,
     });
