@@ -82,17 +82,6 @@ impl ApiError {
         .with_details(serde_json::json!({ "database": database, "keyspace": keyspace, "key": key }))
     }
 
-    /// Keyspace already exists error.
-    #[allow(dead_code)]
-    pub fn keyspace_exists(database: &str, keyspace: &str) -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            "KEYSPACE_EXISTS",
-            format!("Keyspace '{}' already exists in database '{}'", keyspace, database),
-        )
-        .with_details(serde_json::json!({ "database": database, "keyspace": keyspace }))
-    }
-
     /// Invalid Wave format error.
     pub fn invalid_wave_format(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "INVALID_WAVE_FORMAT", message)
@@ -110,12 +99,6 @@ impl ApiError {
             "UNSUPPORTED_MEDIA_TYPE",
             format!("Content-Type '{}' is not supported", content_type),
         )
-    }
-
-    /// Type version mismatch error.
-    #[allow(dead_code)]
-    pub fn type_version_mismatch(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::CONFLICT, "TYPE_VERSION_MISMATCH", message)
     }
 
     /// Internal server error.
@@ -141,23 +124,6 @@ impl ApiError {
     /// WASM module error.
     pub fn wasm_error(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "WASM_ERROR", message)
-    }
-
-    /// Invalid WIT definition error.
-    #[allow(dead_code)]
-    pub fn invalid_wit(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "INVALID_WIT", message)
-    }
-
-    /// Module not found error (for future module registry).
-    #[allow(dead_code)]
-    pub fn module_not_found(id: &str) -> Self {
-        Self::new(
-            StatusCode::NOT_FOUND,
-            "MODULE_NOT_FOUND",
-            format!("Module '{}' not found", id),
-        )
-        .with_details(serde_json::json!({ "module_id": id }))
     }
 }
 
