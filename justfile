@@ -65,56 +65,41 @@ build-wit-ast:
 build-playground: build-client
     #!/usr/bin/env bash
     set -e
-    # Copy wit-ast bindings to playground public dir
-    mkdir -p playground/public/witast
-    cp -r crates/wit-ast/bindings/js/dist/* playground/public/witast/
+    # Copy wit-ast bindings to src/lib for proper ES module handling
+    mkdir -p playground/src/lib/witast
+    cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
     # Build playground
     cd playground && npm install && npm run build
 
-# Run playground with the server (for development)
-playground: build-server build-playground
+# Run playground with the server (production mode)
+playground clean="true": build-server build-playground
     #!/usr/bin/env bash
     set -e
-    # Create config for playground
-    cat > wit-kv-playground.toml << 'EOF'
-    [server]
-    bind = "127.0.0.1"
-    port = 8080
-    static_path = "./playground/dist"
-
-    [[databases]]
-    name = "default"
-    path = "./.wit-kv-data"
-    EOF
+    if [ "{{clean}}" = "true" ]; then
+        echo "Cleaning playground data..."
+        rm -rf .wit-kv-playground
+    fi
     echo "Starting wit-kv-server with playground UI..."
     echo "Open http://localhost:8080 in your browser"
-    ./target/release/wit-kv-server --config wit-kv-playground.toml
+    ./target/release/wit-kv-server --config playground/resources/server.toml
 
 # Run playground in development mode (with Vite HMR)
-playground-dev: build-server
+playground-dev clean="true": build-server
     #!/usr/bin/env bash
     set -e
-    # Copy wit-ast bindings
-    mkdir -p playground/public/witast
-    cp -r crates/wit-ast/bindings/js/dist/* playground/public/witast/
+    # Copy wit-ast bindings to src/lib for proper ES module handling
+    mkdir -p playground/src/lib/witast
+    cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
     # Install deps (use subshell to preserve cwd)
     (cd playground && npm install)
+    # Clean playground data if requested
+    if [ "{{clean}}" = "true" ]; then
+        echo "Cleaning playground data..."
+        rm -rf .wit-kv-playground
+    fi
     # Start server in background
-    cat > /tmp/wit-kv-dev.toml << 'EOF'
-    [server]
-    bind = "127.0.0.1"
-    port = 8080
-
-    [cors]
-    enabled = true
-    allow_origins = ["http://localhost:5173"]
-
-    [[databases]]
-    name = "default"
-    path = "./.wit-kv-data"
-    EOF
     echo "Starting wit-kv-server on port 8080..."
-    ./target/release/wit-kv-server --config /tmp/wit-kv-dev.toml &
+    ./target/release/wit-kv-server --config playground/resources/server-dev.toml &
     SERVER_PID=$!
     trap "kill $SERVER_PID 2>/dev/null" EXIT
     echo "Starting Vite dev server..."
@@ -298,7 +283,7 @@ clean:
     rm -rf dist
     rm -rf client/dist
     rm -rf playground/dist
-    rm -rf playground/public/witast
+    rm -rf playground/src/lib/witast
     rm -rf playground/node_modules
     rm -rf crates/wit-ast/target
     rm -rf examples/point-filter/target
