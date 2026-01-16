@@ -6,15 +6,15 @@ default: build
 
 # Build all release binaries (wit-kv CLI and wit-kv-server)
 build:
-    cargo build --release --features full
+    cargo build --workspace --release
 
 # Build only the CLI binary
 build-cli:
-    cargo build --release --features cli,kv,wasm
+    cargo build --release -p wit-kv-cli
 
 # Build only the server binary
 build-server:
-    cargo build --release --features server
+    cargo build --release -p wit-kv-server
 
 # Build the TypeScript client and UI
 build-client:

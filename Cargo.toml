@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = [
+    "examples/person-filter",
+    "examples/point-filter",
+    "examples/point-to-magnitude",
+    "examples/sum-scores",
+    "examples/witast-decoder",
+]
 
 [workspace.package]
 version = "0.1.0"

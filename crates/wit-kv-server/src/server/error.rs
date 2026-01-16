@@ -83,6 +83,7 @@ impl ApiError {
     }
 
     /// Keyspace already exists error.
+    #[allow(dead_code)]
     pub fn keyspace_exists(database: &str, keyspace: &str) -> Self {
         Self::new(
             StatusCode::CONFLICT,
@@ -112,6 +113,7 @@ impl ApiError {
     }
 
     /// Type version mismatch error.
+    #[allow(dead_code)]
     pub fn type_version_mismatch(message: impl Into<String>) -> Self {
         Self::new(StatusCode::CONFLICT, "TYPE_VERSION_MISMATCH", message)
     }
@@ -142,11 +144,13 @@ impl ApiError {
     }
 
     /// Invalid WIT definition error.
+    #[allow(dead_code)]
     pub fn invalid_wit(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "INVALID_WIT", message)
     }
 
     /// Module not found error (for future module registry).
+    #[allow(dead_code)]
     pub fn module_not_found(id: &str) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,

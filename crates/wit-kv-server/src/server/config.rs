@@ -208,6 +208,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn test_parse_config() {
         let toml = r#"
 [server]
@@ -234,6 +235,7 @@ path = "/var/lib/wit-kv/archive"
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn test_parse_config_with_cors_and_static() {
         let toml = r#"
 [server]
