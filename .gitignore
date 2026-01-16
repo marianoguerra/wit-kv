@@ -12,6 +12,3 @@
 # Example build artifacts
 examples/*/target/
 examples/*/Cargo.lock
-
-# Playground wit-ast bindings (copied during build)
-playground/src/lib/witast/
