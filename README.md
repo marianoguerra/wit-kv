@@ -7,22 +7,25 @@ wit-kv enforces schemas at the storage layer: each keyspace is bound to a WIT ty
 **Core capabilities:**
 
 - **Typed storage** — Schema enforcement per keyspace with semantic versioning
-- **Three interfaces** — HTTP API server, command-line tool, and Rust library
+- **Multiple interfaces** — HTTP API, CLI, Rust library, TypeScript client, and web playground
 - **Canonical ABI encoding** — Binary format compatible with WebAssembly components
 - **WASM map/reduce** — Execute components directly on stored data with full type safety
 - **WAVE text format** — Human-readable syntax for all WIT types
+- **Browser support** — Standalone `wit-ast` WASM component for WIT parsing in any runtime
 
 ---
 
 ## Installation
 
 ```bash
-# Install CLI and server
-cargo install --path . --features full
+# Install CLI
+cargo install --path crates/wit-kv-cli
 
-# Or build specific binaries
-cargo build --release --features cli    # CLI only
-cargo build --release --features server # Server only
+# Install server
+cargo install --path crates/wit-kv-server
+
+# Or build everything
+cargo build --release
 ```
 
 ## Defining Types
@@ -125,6 +128,9 @@ All GET endpoints support content negotiation between WAVE text and canonical AB
 | GET | `/db/{db}/kv/{keyspace}/{key}` | Get value | user type |
 | PUT | `/db/{db}/kv/{keyspace}/{key}` | Set value | - |
 | DELETE | `/db/{db}/kv/{keyspace}/{key}` | Delete value | - |
+| **Map/Reduce** |
+| POST | `/db/{db}/map/{keyspace}` | Execute map operation | transformed values |
+| POST | `/db/{db}/reduce/{keyspace}` | Execute reduce operation | aggregated result |
 
 ### Content Negotiation
 
@@ -199,6 +205,20 @@ await client.delete('points', 'p1');
 ```bash
 cd client && npm install && npm run build
 ```
+
+### Playground
+
+An interactive web UI for exploring wit-kv features. The playground demonstrates:
+
+- Map/reduce operations with live examples
+- Value inspection and hexdump visualization
+- WAVE text parsing and canonical ABI encoding
+
+```bash
+cd playground && npm install && npm run dev
+```
+
+The playground uses the `wit-ast` WASM component for in-browser WIT parsing and value formatting.
 
 ---
 
@@ -294,9 +314,17 @@ See `examples/` for sample components.
 
 ## Library
 
-The Rust library provides direct access to the canonical ABI encoder and key-value store.
+The Rust workspace provides several crates:
 
-### Feature Flags
+| Crate | Description |
+|-------|-------------|
+| `wit-kv` | Core library (KV store + WASM execution) |
+| `wit-kv-abi` | Canonical ABI encoding/decoding (standalone) |
+| `wit-kv-cli` | Command-line interface |
+| `wit-kv-server` | HTTP API server |
+| `wit-ast` | Standalone WASM component for WIT parsing |
+
+### Feature Flags (wit-kv crate)
 
 ```toml
 [dependencies]
@@ -306,10 +334,8 @@ wit-kv = { version = "0.1", features = ["kv"] }
 | Feature | Description |
 |---------|-------------|
 | `kv` | Key-value store (default) |
-| `wasm` | WebAssembly component execution (default) |
-| `cli` | Command-line binary |
-| `server` | HTTP API server |
-| `full` | All features |
+| `wasm` | WebAssembly component execution |
+| `logging` | Tracing-based logging |
 
 ### API Usage
 
@@ -349,9 +375,11 @@ wit-kv/
 │   ├── wit-kv-abi/         # Canonical ABI encoding/decoding
 │   ├── wit-kv/             # Core library (KV store + WASM)
 │   ├── wit-kv-cli/         # CLI binary
-│   └── wit-kv-server/      # HTTP server binary
+│   ├── wit-kv-server/      # HTTP server binary
+│   └── wit-ast/            # Standalone WASM component for WIT parsing
 ├── client/                 # TypeScript client
-├── examples/               # Map/reduce examples
+├── playground/             # Interactive web UI
+├── examples/               # Map/reduce example components
 └── kv.wit                  # Storage format types
 ```
 
@@ -364,7 +392,7 @@ wit-kv/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │              wit-kv-server (HTTP API)                       │
-│              wit-kv (CLI)                                   │
+│              wit-kv-cli (Command Line)                      │
 ├─────────────────────────────────────────────────────────────┤
 │                    KvStore                                  │
 │         (typed keyspaces, schema versioning)                │
@@ -376,6 +404,13 @@ wit-kv/
 │  (WIT types)    │  (WAVE format)  │  (Wasm runtime)         │
 ├─────────────────┴─────────────────┴─────────────────────────┤
 │                    fjall (persistent KV)                    │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│           wit-ast (standalone WASM component)               │
+│   WIT parsing + WAVE formatting for browser/edge runtimes   │
+├─────────────────────────────────────────────────────────────┤
+│         playground (web UI using wit-ast)                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 

@@ -177,7 +177,7 @@ smoke-test: build build-examples
     rm -rf /tmp/smoke-test-kv
     mkdir -p /tmp/smoke-test-kv
     ./target/release/wit-kv init --path /tmp/smoke-test-kv
-    ./target/release/wit-kv set-type users --wit test.wit --type-name person --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set-type users --wit examples/sum-scores/wit/reduce.wit --type-name person --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users alice --value "{age: 30, score: 100}" --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users bob --value "{age: 25, score: 85}" --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users charlie --value "{age: 35, score: 120}" --path /tmp/smoke-test-kv
