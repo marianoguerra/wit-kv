@@ -5,9 +5,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    rollupOptions: {
-      // Allow the dynamic import of the external witast module
-      external: [/^\/witast\/.*/],
+    // Support top-level await in witast.js (generated WASM bindings)
+    target: 'esnext',
+  },
+  // Suppress node:fs/promises warning for witast.js (it handles the fallback)
+  resolve: {
+    alias: {
+      'node:fs/promises': 'data:text/javascript,export default {}',
     },
   },
   server: {

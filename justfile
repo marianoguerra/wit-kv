@@ -61,13 +61,19 @@ dist: build-all
 build-wit-ast:
     cd crates/wit-ast && cargo build --release --target wasm32-unknown-unknown
 
-# Build the playground (requires wit-ast JS bindings)
-build-playground: build-client
+# Build the playground (requires wit-ast JS bindings and example components)
+build-playground: build-client build-examples
     #!/usr/bin/env bash
     set -e
     # Copy wit-ast bindings to src/lib for proper ES module handling
     mkdir -p playground/src/lib/witast
     cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
+    # Copy example WASM components to public/wasm
+    mkdir -p playground/public/wasm
+    cp examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
+    cp examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
+    cp examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
+    cp examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
     # Build playground
     cd playground && npm install && npm run build
 
@@ -84,12 +90,18 @@ playground clean="true": build-server build-playground
     ./target/release/wit-kv-server --config playground/resources/server.toml
 
 # Run playground in development mode (with Vite HMR)
-playground-dev clean="true": build-server
+playground-dev clean="true": build-server build-examples
     #!/usr/bin/env bash
     set -e
     # Copy wit-ast bindings to src/lib for proper ES module handling
     mkdir -p playground/src/lib/witast
     cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
+    # Copy example WASM components to public/wasm
+    mkdir -p playground/public/wasm
+    cp examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
+    cp examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
+    cp examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
+    cp examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
     # Install deps (use subshell to preserve cwd)
     (cd playground && npm install)
     # Clean playground data if requested

@@ -11,9 +11,29 @@ export interface Example {
   values: { key: string; value: string }[];
 }
 
+export interface MapReduceExample {
+  name: string;
+  description: string;
+  keyspace: string;
+  witDefinition: string;
+  typeName: string;
+  /** Output type name (for map operations that transform T -> T1) */
+  outputTypeName?: string;
+  values: { key: string; value: string }[];
+  /** Path to the WASM component (relative to /wasm/) */
+  componentPath: string;
+  /** Operation type */
+  operationType: 'map' | 'reduce';
+}
+
 export interface ExampleCategory {
   name: string;
   examples: Example[];
+}
+
+export interface MapReduceCategory {
+  name: string;
+  examples: MapReduceExample[];
 }
 
 export const exampleCategories: ExampleCategory[] = [
@@ -407,6 +427,150 @@ world example {
 ];
 
 /**
+ * MapReduce examples with WASM components
+ */
+export const mapReduceCategories: MapReduceCategory[] = [
+  {
+    name: 'Map Operations',
+    examples: [
+      {
+        name: 'Point Filter',
+        description: 'Filter and transform 2D points (keeps points with positive coordinates)',
+        keyspace: 'mr-points',
+        witDefinition: `package wit-kv:typed-map@0.1.0;
+
+interface types {
+    record point {
+        x: s32,
+        y: s32,
+    }
+}
+
+world typed-map-module {
+    use types.{point};
+    export filter: func(value: point) -> bool;
+    export transform: func(value: point) -> point;
+}`,
+        typeName: 'point',
+        values: [
+          { key: 'origin', value: '{x: 0, y: 0}' },
+          { key: 'positive', value: '{x: 10, y: 20}' },
+          { key: 'negative', value: '{x: -5, y: -10}' },
+          { key: 'mixed', value: '{x: 15, y: -3}' },
+          { key: 'large', value: '{x: 100, y: 200}' },
+        ],
+        componentPath: 'point_filter.wasm',
+        operationType: 'map',
+      },
+      {
+        name: 'Person Filter',
+        description: 'Filter people by score (keeps score >= 50, doubles the score)',
+        keyspace: 'mr-people',
+        witDefinition: `package wit-kv:typed-person-map@0.1.0;
+
+interface types {
+    record person {
+        age: u8,
+        score: u32,
+    }
+}
+
+world typed-map-module {
+    use types.{person};
+    export filter: func(value: person) -> bool;
+    export transform: func(value: person) -> person;
+}`,
+        typeName: 'person',
+        values: [
+          { key: 'alice', value: '{age: 25, score: 85}' },
+          { key: 'bob', value: '{age: 30, score: 45}' },
+          { key: 'charlie', value: '{age: 22, score: 92}' },
+          { key: 'diana', value: '{age: 28, score: 30}' },
+          { key: 'eve', value: '{age: 35, score: 78}' },
+        ],
+        componentPath: 'person_filter.wasm',
+        operationType: 'map',
+      },
+      {
+        name: 'Point to Magnitude',
+        description: 'Transform points to magnitude info (T -> T1 transformation)',
+        keyspace: 'mr-magnitudes',
+        witDefinition: `package wit-kv:point-to-magnitude@0.1.0;
+
+interface types {
+    record point {
+        x: s32,
+        y: s32,
+    }
+
+    record magnitude {
+        distance-squared: u64,
+        quadrant: u8,
+    }
+}
+
+world typed-map-module {
+    use types.{point, magnitude};
+    export filter: func(value: point) -> bool;
+    export transform: func(value: point) -> magnitude;
+}`,
+        typeName: 'point',
+        outputTypeName: 'magnitude',
+        values: [
+          { key: 'q1', value: '{x: 3, y: 4}' },
+          { key: 'q2', value: '{x: -5, y: 12}' },
+          { key: 'q3', value: '{x: -8, y: -6}' },
+          { key: 'q4', value: '{x: 7, y: -24}' },
+          { key: 'origin', value: '{x: 0, y: 0}' },
+        ],
+        componentPath: 'point_to_magnitude.wasm',
+        operationType: 'map',
+      },
+    ],
+  },
+  {
+    name: 'Reduce Operations',
+    examples: [
+      {
+        name: 'Sum Scores',
+        description: 'Reduce people to sum of scores and count',
+        keyspace: 'mr-scores',
+        witDefinition: `package wit-kv:typed-sum-scores@0.1.0;
+
+interface types {
+    record person {
+        age: u8,
+        score: u32,
+    }
+
+    record total {
+        sum: u64,
+        count: u32,
+    }
+}
+
+world typed-reduce-module {
+    use types.{person, total};
+    export init-state: func() -> total;
+    export reduce: func(state: total, value: person) -> total;
+}`,
+        typeName: 'person',
+        outputTypeName: 'total',
+        values: [
+          { key: 'player1', value: '{age: 20, score: 100}' },
+          { key: 'player2', value: '{age: 25, score: 250}' },
+          { key: 'player3', value: '{age: 30, score: 175}' },
+          { key: 'player4', value: '{age: 22, score: 320}' },
+          { key: 'player5', value: '{age: 28, score: 95}' },
+        ],
+        componentPath: 'sum_scores.wasm',
+        operationType: 'reduce',
+      },
+    ],
+  },
+];
+
+/**
  * Get all examples as a flat list
  */
 export function getAllExamples(): Example[] {
@@ -414,8 +578,22 @@ export function getAllExamples(): Example[] {
 }
 
 /**
+ * Get all MapReduce examples as a flat list
+ */
+export function getAllMapReduceExamples(): MapReduceExample[] {
+  return mapReduceCategories.flatMap((cat) => cat.examples);
+}
+
+/**
  * Find an example by keyspace name
  */
 export function findExampleByKeyspace(keyspace: string): Example | undefined {
   return getAllExamples().find((ex) => ex.keyspace === keyspace);
+}
+
+/**
+ * Find a MapReduce example by keyspace name
+ */
+export function findMapReduceExampleByKeyspace(keyspace: string): MapReduceExample | undefined {
+  return getAllMapReduceExamples().find((ex) => ex.keyspace === keyspace);
 }

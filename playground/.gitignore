@@ -6,3 +6,6 @@ dist/
 
 # wit-ast bindings (copied during build from crates/wit-ast)
 src/lib/witast/
+
+# WASM components (copied during build from examples/)
+public/wasm/
