@@ -68,6 +68,8 @@ build-playground: build-client build-examples
     # Copy wit-ast bindings to src/lib for proper ES module handling
     mkdir -p playground/src/lib/witast
     cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
+    # Patch witast.js to remove Node.js code (browser-only)
+    sed -i 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js
     # Copy example WASM components to public/wasm
     mkdir -p playground/public/wasm
     cp examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
@@ -96,6 +98,8 @@ playground-dev clean="true": build-server build-examples
     # Copy wit-ast bindings to src/lib for proper ES module handling
     mkdir -p playground/src/lib/witast
     cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
+    # Patch witast.js to remove Node.js code (browser-only)
+    sed -i 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js
     # Copy example WASM components to public/wasm
     mkdir -p playground/public/wasm
     cp examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
