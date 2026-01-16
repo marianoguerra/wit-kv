@@ -1,5 +1,5 @@
 import './style.css';
-import { witKvService, type KeyspaceInfo } from './services/wit-kv-service';
+import { witKvService, type KeyspaceInfo, type MapResult, type ReduceResult } from './services/wit-kv-service';
 import {
   witAstService,
   type BinaryExport,
@@ -7,7 +7,7 @@ import {
 } from './services/wit-ast-service';
 import { formatHexdump, formatByteCount } from './utils/hexdump';
 import { renderValueTree, valueTreeToJson } from './utils/tree-renderer';
-import { exampleCategories } from './examples';
+import { exampleCategories, mapReduceCategories, type MapReduceExample } from './examples';
 
 /**
  * Decode a binary-export envelope from canonical ABI encoded bytes.
@@ -78,6 +78,10 @@ let currentBinaryData: ArrayBuffer | null = null;
 let currentValueTree: ValueTree | null = null;
 let currentWaveText: string | null = null;
 
+// MapReduce state
+let currentMapReduceExample: MapReduceExample | null = null;
+let loadedWasmModules: Map<string, ArrayBuffer> = new Map();
+
 // Initialize the app
 async function init() {
   renderApp();
@@ -113,6 +117,24 @@ function renderApp() {
                 .map(
                   (ex) => `
                 <div class="example-item" data-keyspace="${ex.keyspace}">
+                  <div class="title">${ex.name}</div>
+                  <div class="desc">${ex.description}</div>
+                </div>
+              `
+                )
+                .join('')}
+            `
+              )
+              .join('')}
+            <div class="example-category" style="border-top: 1px solid var(--border-color); margin-top: 0.5rem; padding-top: 0.5rem;">MapReduce Examples</div>
+            ${mapReduceCategories
+              .map(
+                (cat) => `
+              <div class="example-category" style="font-size: 0.75rem; color: var(--text-muted);">${cat.name}</div>
+              ${cat.examples
+                .map(
+                  (ex) => `
+                <div class="example-item mapreduce-example" data-keyspace="${ex.keyspace}">
                   <div class="title">${ex.name}</div>
                   <div class="desc">${ex.description}</div>
                 </div>
@@ -164,6 +186,7 @@ function renderApp() {
         <div class="tabs">
           <div class="tab active" data-tab="get">Get / Set Value</div>
           <div class="tab" data-tab="type">Register Type</div>
+          <div class="tab" data-tab="mapreduce">Map/Reduce</div>
         </div>
 
         <div class="editor-area">
@@ -253,6 +276,50 @@ world example {
   `;
 }
 
+function renderMapReduceTab(): string {
+  const example = currentMapReduceExample;
+  const hasExample = example !== null;
+
+  return `
+    <div class="editor-section">
+      <h3>Map/Reduce Operations</h3>
+      ${hasExample ? `
+        <div class="mapreduce-info" style="background: var(--bg-secondary); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+          <div style="font-weight: 600; margin-bottom: 0.5rem;">${example.name}</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">${example.description}</div>
+          <div style="font-size: 0.8rem;">
+            <span style="color: var(--text-muted);">Keyspace:</span> <code>${example.keyspace}</code> |
+            <span style="color: var(--text-muted);">Type:</span> <code>${example.typeName}</code>
+            ${example.outputTypeName ? ` -> <code>${example.outputTypeName}</code>` : ''} |
+            <span style="color: var(--text-muted);">Operation:</span> <code>${example.operationType}</code>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Keyspace:</label>
+          <input type="text" id="mrKeyspace" value="${example.keyspace}" placeholder="keyspace">
+        </div>
+        <div class="form-row">
+          <label>Key Filter:</label>
+          <input type="text" id="mrKeyFilter" placeholder="optional: prefix filter">
+        </div>
+        <div class="form-row" style="margin-top: 0.75rem; gap: 0.5rem;">
+          <button id="runMapReduceBtn">${example.operationType === 'map' ? 'Run Map' : 'Run Reduce'}</button>
+          <button id="clearMapReduceBtn" class="secondary">Clear</button>
+        </div>
+        <div id="mrOutput" class="output" style="margin-top: 0.75rem; display: none;"></div>
+        <div id="mrResults" style="margin-top: 1rem;"></div>
+      ` : `
+        <div style="color: var(--text-muted); text-align: center; padding: 2rem;">
+          <p>Select a MapReduce example from the "Load Example" dropdown to get started.</p>
+          <p style="font-size: 0.85rem; margin-top: 1rem;">
+            MapReduce examples include pre-built WASM components that can filter and transform your data.
+          </p>
+        </div>
+      `}
+    </div>
+  `;
+}
+
 function bindEvents() {
   // Database select
   document.getElementById('databaseSelect')?.addEventListener('change', (e) => {
@@ -278,12 +345,23 @@ function bindEvents() {
     }
   });
 
-  // Example items
-  document.querySelectorAll('.example-item').forEach((item) => {
+  // Example items (regular examples)
+  document.querySelectorAll('.example-item:not(.mapreduce-example)').forEach((item) => {
     item.addEventListener('click', () => {
       const keyspace = (item as HTMLElement).dataset.keyspace;
       if (keyspace) {
         loadExample(keyspace);
+        document.getElementById('examplesMenu')?.classList.add('hidden');
+      }
+    });
+  });
+
+  // MapReduce example items
+  document.querySelectorAll('.example-item.mapreduce-example').forEach((item) => {
+    item.addEventListener('click', () => {
+      const keyspace = (item as HTMLElement).dataset.keyspace;
+      if (keyspace) {
+        loadMapReduceExample(keyspace);
         document.getElementById('examplesMenu')?.classList.add('hidden');
       }
     });
@@ -305,7 +383,7 @@ function bindEvents() {
   // Tabs
   document.querySelectorAll('.tabs .tab').forEach((tab) => {
     tab.addEventListener('click', () => {
-      const tabName = (tab as HTMLElement).dataset.tab as 'get' | 'type';
+      const tabName = (tab as HTMLElement).dataset.tab as 'get' | 'type' | 'mapreduce';
       switchTab(tabName);
     });
   });
@@ -342,9 +420,17 @@ function bindTabEvents() {
   document
     .getElementById('deleteTypeBtn')
     ?.addEventListener('click', deleteType);
+
+  // MapReduce tab buttons
+  document
+    .getElementById('runMapReduceBtn')
+    ?.addEventListener('click', runMapReduce);
+  document
+    .getElementById('clearMapReduceBtn')
+    ?.addEventListener('click', clearMapReduce);
 }
 
-function switchTab(tab: 'get' | 'type') {
+function switchTab(tab: 'get' | 'type' | 'mapreduce') {
   // Update tab UI
   document.querySelectorAll('.tabs .tab').forEach((t) => {
     t.classList.toggle('active', (t as HTMLElement).dataset.tab === tab);
@@ -353,7 +439,13 @@ function switchTab(tab: 'get' | 'type') {
   // Render tab content
   const content = document.getElementById('tabContent');
   if (content) {
-    content.innerHTML = tab === 'get' ? renderGetTab() : renderTypeTab();
+    if (tab === 'get') {
+      content.innerHTML = renderGetTab();
+    } else if (tab === 'type') {
+      content.innerHTML = renderTypeTab();
+    } else {
+      content.innerHTML = renderMapReduceTab();
+    }
     bindTabEvents();
   }
 }
@@ -815,6 +907,180 @@ async function loadExample(keyspace: string) {
     );
   } catch (err) {
     showOutput(`Failed to load example: ${(err as Error).message}`, 'error');
+  }
+}
+
+async function loadMapReduceExample(keyspace: string) {
+  const example = mapReduceCategories
+    .flatMap((c) => c.examples)
+    .find((e) => e.keyspace === keyspace);
+
+  if (!example) return;
+
+  try {
+    // Ensure connected
+    if (!connected) {
+      await connect();
+    }
+
+    // Register the type (use the input type's WIT definition)
+    await witKvService.setType(
+      example.keyspace,
+      example.witDefinition,
+      example.typeName
+    );
+
+    // Set all example values
+    for (const { key, value } of example.values) {
+      await witKvService.setValue(example.keyspace, key, value);
+    }
+
+    // Load the WASM component if not already cached
+    if (!loadedWasmModules.has(example.componentPath)) {
+      const response = await fetch(`/wasm/${example.componentPath}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load WASM component: ${response.status}`);
+      }
+      const bytes = await response.arrayBuffer();
+      loadedWasmModules.set(example.componentPath, bytes);
+    }
+
+    // Set current example and switch to MapReduce tab
+    currentMapReduceExample = example;
+
+    // Refresh keyspaces and switch to MapReduce tab
+    await refreshKeyspaces();
+    selectKeyspace(example.keyspace);
+    switchTab('mapreduce');
+
+    showMapReduceOutput(
+      `Loaded MapReduce example: ${example.name} (${example.values.length} values)`,
+      'success'
+    );
+  } catch (err) {
+    showOutput(`Failed to load MapReduce example: ${(err as Error).message}`, 'error');
+  }
+}
+
+async function runMapReduce() {
+  const example = currentMapReduceExample;
+  if (!example) {
+    showMapReduceOutput('No MapReduce example loaded', 'error');
+    return;
+  }
+
+  const keyspace = (document.getElementById('mrKeyspace') as HTMLInputElement)?.value || example.keyspace;
+  const keyFilter = (document.getElementById('mrKeyFilter') as HTMLInputElement)?.value || undefined;
+
+  const moduleBytes = loadedWasmModules.get(example.componentPath);
+  if (!moduleBytes) {
+    showMapReduceOutput('WASM module not loaded', 'error');
+    return;
+  }
+
+  try {
+    const resultsDiv = document.getElementById('mrResults');
+
+    if (example.operationType === 'map') {
+      showMapReduceOutput('Running map operation...', 'success');
+
+      const result: MapResult = await witKvService.map(keyspace, moduleBytes, {
+        wit_definition: example.witDefinition,
+        input_type: example.typeName,
+        output_type: example.outputTypeName,
+        filter: keyFilter ? { prefix: keyFilter } : undefined,
+      });
+
+      showMapReduceOutput(
+        `Map completed: ${result.processed} processed, ${result.transformed} transformed, ${result.filtered} filtered`,
+        result.errors.length > 0 ? 'error' : 'success'
+      );
+
+      if (resultsDiv) {
+        resultsDiv.innerHTML = renderMapResults(result);
+      }
+    } else {
+      showMapReduceOutput('Running reduce operation...', 'success');
+
+      const result: ReduceResult = await witKvService.reduce(keyspace, moduleBytes, {
+        wit_definition: example.witDefinition,
+        input_type: example.typeName,
+        state_type: example.outputTypeName || 'total',
+        filter: keyFilter ? { prefix: keyFilter } : undefined,
+      });
+
+      showMapReduceOutput(
+        `Reduce completed: ${result.processed} processed`,
+        result.error_count > 0 ? 'error' : 'success'
+      );
+
+      if (resultsDiv) {
+        resultsDiv.innerHTML = renderReduceResults(result);
+      }
+    }
+  } catch (err) {
+    showMapReduceOutput(`Error: ${(err as Error).message}`, 'error');
+  }
+}
+
+function renderMapResults(result: MapResult): string {
+  let html = '<div style="font-size: 0.9rem;">';
+
+  if (result.errors.length > 0) {
+    html += '<div style="margin-bottom: 1rem;"><strong>Errors:</strong><ul style="margin: 0.5rem 0; padding-left: 1.5rem;">';
+    for (const [key, error] of result.errors) {
+      html += `<li><code>${escapeHtml(key)}</code>: ${escapeHtml(error)}</li>`;
+    }
+    html += '</ul></div>';
+  }
+
+  if (result.results.length > 0) {
+    html += '<div><strong>Results:</strong></div>';
+    html += '<div style="max-height: 300px; overflow-y: auto; margin-top: 0.5rem;">';
+    for (const [key, value] of result.results) {
+      html += `<div style="padding: 0.5rem; background: var(--bg-secondary); margin-bottom: 0.25rem; border-radius: 4px;">
+        <div style="font-weight: 500; font-size: 0.85rem;">${escapeHtml(key)}</div>
+        <pre style="margin: 0.25rem 0 0 0; font-size: 0.8rem; white-space: pre-wrap;">${escapeHtml(value)}</pre>
+      </div>`;
+    }
+    html += '</div>';
+  } else if (result.errors.length === 0) {
+    html += '<div style="color: var(--text-muted);">No results (all values were filtered out)</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function renderReduceResults(result: ReduceResult): string {
+  let html = '<div style="font-size: 0.9rem;">';
+
+  if (result.errors.length > 0) {
+    html += '<div style="margin-bottom: 1rem;"><strong>Errors:</strong><ul style="margin: 0.5rem 0; padding-left: 1.5rem;">';
+    for (const [key, error] of result.errors) {
+      html += `<li><code>${escapeHtml(key)}</code>: ${escapeHtml(error)}</li>`;
+    }
+    html += '</ul></div>';
+  }
+
+  html += '<div><strong>Final State:</strong></div>';
+  html += `<pre style="padding: 1rem; background: var(--bg-secondary); border-radius: 4px; margin-top: 0.5rem; white-space: pre-wrap;">${escapeHtml(result.state)}</pre>`;
+
+  html += '</div>';
+  return html;
+}
+
+function clearMapReduce() {
+  currentMapReduceExample = null;
+  switchTab('mapreduce');
+}
+
+function showMapReduceOutput(message: string, type: 'success' | 'error' = 'success') {
+  const output = document.getElementById('mrOutput');
+  if (output) {
+    output.textContent = message;
+    output.className = `output ${type}`;
+    output.style.display = 'block';
   }
 }
 

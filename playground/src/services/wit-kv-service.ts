@@ -7,6 +7,47 @@ export interface KeyspaceInfo {
   witDefinition?: string;
 }
 
+export interface MapConfig {
+  wit_definition: string;
+  input_type: string;
+  output_type?: string;
+  filter?: {
+    key?: string;
+    prefix?: string;
+    start?: string;
+    end?: string;
+    limit?: number;
+  };
+}
+
+export interface ReduceConfig {
+  wit_definition: string;
+  input_type: string;
+  state_type: string;
+  filter?: {
+    key?: string;
+    prefix?: string;
+    start?: string;
+    end?: string;
+    limit?: number;
+  };
+}
+
+export interface MapResult {
+  processed: number;
+  transformed: number;
+  filtered: number;
+  errors: [string, string][];
+  results: [string, string][];
+}
+
+export interface ReduceResult {
+  processed: number;
+  error_count: number;
+  errors: [string, string][];
+  state: string;
+}
+
 /**
  * Service for interacting with wit-kv server
  * Uses the same origin (no CORS needed)
@@ -146,6 +187,56 @@ export class WitKvService {
    */
   clearTypeCache(): void {
     this.typeCache.clear();
+  }
+
+  /**
+   * Execute a map operation with a WASM component
+   */
+  async map(
+    keyspace: string,
+    moduleBytes: ArrayBuffer,
+    config: MapConfig
+  ): Promise<MapResult> {
+    const formData = new FormData();
+    formData.append('module', new Blob([moduleBytes]), 'module.wasm');
+    formData.append('config', JSON.stringify(config));
+
+    const response = await fetch(`/api/${this.database}/map/${keyspace}`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || `Map operation failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Execute a reduce operation with a WASM component
+   */
+  async reduce(
+    keyspace: string,
+    moduleBytes: ArrayBuffer,
+    config: ReduceConfig
+  ): Promise<ReduceResult> {
+    const formData = new FormData();
+    formData.append('module', new Blob([moduleBytes]), 'module.wasm');
+    formData.append('config', JSON.stringify(config));
+
+    const response = await fetch(`/api/${this.database}/reduce/${keyspace}`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || `Reduce operation failed: ${response.status}`);
+    }
+
+    return response.json();
   }
 }
 
