@@ -1,0 +1,8 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# wit-ast bindings (copied during build from crates/wit-ast)
+src/lib/witast/

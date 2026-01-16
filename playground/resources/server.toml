@@ -1,0 +1,9 @@
+# Playground server configuration (production mode with static file serving)
+[server]
+bind = "127.0.0.1"
+port = 8080
+static_path = "./playground/dist"
+
+[[databases]]
+name = "default"
+path = "./.wit-kv-playground"

@@ -1,0 +1,12 @@
+# Playground server configuration (dev mode with CORS for Vite HMR)
+[server]
+bind = "127.0.0.1"
+port = 8080
+
+[cors]
+enabled = true
+allow_origins = ["http://localhost:5173"]
+
+[[databases]]
+name = "default"
+path = "./.wit-kv-playground"
