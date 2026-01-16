@@ -1,7 +1,7 @@
 //! Simulated linear memory for variable-length types.
 
-use super::buffer::align_to;
 use super::CanonicalAbiError;
+use super::buffer::align_to;
 
 /// Simulated linear memory for variable-length types (strings and lists).
 ///

@@ -47,7 +47,8 @@ pub mod wasm;
 pub use wit_kv_abi::{CanonicalAbi, CanonicalAbiError, EncodedValue, LinearMemory};
 
 // Re-export from wit-parser and wasm-wave for convenience
-pub use wasm_wave::value::{resolve_wit_type, Type as WaveType, Value};
+pub use wasm_wave::value::{Type as WaveType, Value, resolve_wit_type};
+pub use wasm_wave::{from_str as wave_from_str, to_string as wave_to_string};
 pub use wit_parser::{Resolve, Type, TypeId};
 
 // Re-export unified error types
@@ -62,18 +63,21 @@ pub use kv::{
 
 // Re-export WASM types (when feature enabled)
 #[cfg(feature = "wasm")]
-pub use wasm::{create_placeholder_val, TypedRunner, TypedRunnerBuilder, WasmError};
+pub use wasm::{TypedRunner, TypedRunnerBuilder, WasmError, create_placeholder_val};
 
 // Re-export Val conversion functions (when wasm feature enabled)
 #[cfg(feature = "wasm")]
-pub use wit_kv_abi::{val_to_wave, wave_to_val, ValConvertError};
+pub use wit_kv_abi::{ValConvertError, val_to_wave, wave_to_val};
 
 /// Find the first named type in a WIT resolve.
 ///
 /// This searches through all types in the resolve and returns the first
 /// one that has the given name.
 pub fn find_first_named_type(resolve: &Resolve) -> Option<TypeId> {
-    resolve.types.iter().find_map(|(id, ty)| ty.name.as_ref().map(|_| id))
+    resolve
+        .types
+        .iter()
+        .find_map(|(id, ty)| ty.name.as_ref().map(|_| id))
 }
 
 /// Find a type by name in a WIT resolve.
@@ -123,8 +127,8 @@ pub fn load_wit_type_from_string(
             .ok_or_else(|| Error::WaveParse("No named type found in WIT definition".to_string())),
     }?;
 
-    let wave_type = resolve_wit_type(&resolve, type_id)
-        .map_err(|e| Error::WaveParse(e.to_string()))?;
+    let wave_type =
+        resolve_wit_type(&resolve, type_id).map_err(|e| Error::WaveParse(e.to_string()))?;
 
     Ok((resolve, type_id, wave_type))
 }

@@ -5,10 +5,10 @@ mod mapreduce;
 mod types;
 
 use axum::{
+    Router,
     extract::State,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Router,
 };
 use tracing::{debug, info, instrument};
 

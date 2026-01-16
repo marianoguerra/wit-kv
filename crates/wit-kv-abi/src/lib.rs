@@ -36,7 +36,7 @@ pub use error::CanonicalAbiError;
 pub use memory::LinearMemory;
 
 #[cfg(feature = "val")]
-pub use val_convert::{val_to_wave, wave_to_val, ValConvertError};
+pub use val_convert::{ValConvertError, val_to_wave, wave_to_val};
 
 use wasm_wave::value::{Type as WaveType, Value};
 use wit_parser::{Resolve, SizeAlign, Type};
@@ -186,7 +186,10 @@ impl EncodedValue {
     ///
     /// Use this for fixed-size types that don't contain strings or lists.
     pub fn from_buffer(buffer: Vec<u8>) -> Self {
-        Self { buffer, memory: None }
+        Self {
+            buffer,
+            memory: None,
+        }
     }
 
     /// Returns true if this encoded value has associated linear memory.

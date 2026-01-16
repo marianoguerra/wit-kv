@@ -1,14 +1,13 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use thiserror::Error;
-use wasm_wave::value::{resolve_wit_type, Value};
-use wit_parser::{Resolve, Type, TypeId};
 
 use wit_kv::kv::{BinaryExport, KvError, KvStore};
 use wit_kv::wasm::{TypedRunner, WasmError};
 use wit_kv::{
-    find_first_named_type, find_type_by_name, val_to_wave, CanonicalAbi, CanonicalAbiError,
-    LinearMemory, ValConvertError,
+    CanonicalAbi, CanonicalAbiError, LinearMemory, Resolve, Type, TypeId, ValConvertError, Value,
+    find_first_named_type, find_type_by_name, resolve_wit_type, val_to_wave, wave_from_str,
+    wave_to_string,
 };
 
 /// CLI-specific errors.
@@ -383,18 +382,14 @@ fn get_error_hint(err: &AppError) -> Option<&'static str> {
         | AppError::KeyspaceNotFound(_) => {
             Some("Run 'wit-kv set-type <KEYSPACE> --wit <FILE>' to register a type first")
         }
-        AppError::KeyNotFound { .. } => {
-            Some("Use 'wit-kv list <KEYSPACE>' to see available keys")
-        }
-        AppError::TypeNotFound(_) => {
-            Some("Use --type-name to specify the exact type, or check the WIT file for available types")
-        }
+        AppError::KeyNotFound { .. } => Some("Use 'wit-kv list <KEYSPACE>' to see available keys"),
+        AppError::TypeNotFound(_) => Some(
+            "Use --type-name to specify the exact type, or check the WIT file for available types",
+        ),
         AppError::WaveParse(_) => {
             Some("WAVE format: records {field: value}, enums name, variants case(value)")
         }
-        AppError::NoTypes => {
-            Some("Ensure the WIT file contains at least one type definition")
-        }
+        AppError::NoTypes => Some("Ensure the WIT file contains at least one type definition"),
         AppError::MissingValueInput => {
             Some("Provide a value with --value '{...}' or from a file with --file path.wave")
         }
@@ -425,7 +420,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
             let wave_type = resolve_wit_type(&resolve, type_id)
                 .map_err(|e| AppError::WaveParse(e.to_string()))?;
 
-            let parsed_value: Value = wasm_wave::from_str(&wave_type, &value)
+            let parsed_value: Value = wave_from_str(&wave_type, &value)
                 .map_err(|e| AppError::WaveParse(e.to_string()))?;
 
             let abi = CanonicalAbi::new(&resolve);
@@ -482,7 +477,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
             let value = val_to_wave(&val, &wave_type)?;
 
             let wave_str =
-                wasm_wave::to_string(&value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
+                wave_to_string(&value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
 
             match output {
                 Some(path) => {
@@ -608,10 +603,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
                         std::io::stdout().write_all(&memory)?;
                     }
                     None => {
-                        return Err(AppError::KeyNotFound {
-                            keyspace,
-                            key,
-                        });
+                        return Err(AppError::KeyNotFound { keyspace, key });
                     }
                 }
             } else {
@@ -620,16 +612,17 @@ fn run(cli: Cli) -> Result<(), AppError> {
                         println!("{}", wave_str);
                     }
                     None => {
-                        return Err(AppError::KeyNotFound {
-                            keyspace,
-                            key,
-                        });
+                        return Err(AppError::KeyNotFound { keyspace, key });
                     }
                 }
             }
             Ok(())
         }
-        Commands::Delete { keyspace, key, path } => {
+        Commands::Delete {
+            keyspace,
+            key,
+            path,
+        } => {
             let store = KvStore::open(&path)?;
             store.delete(&keyspace, &key)?;
             println!("Deleted '{}' from keyspace '{}'", key, keyspace);
@@ -666,12 +659,21 @@ fn run(cli: Cli) -> Result<(), AppError> {
             path,
         } => {
             let store = KvStore::open(&path)?;
-            let mut runner = TypedRunner::new(&module, &module_wit, &input_type, output_type.as_deref())?;
+            let mut runner =
+                TypedRunner::new(&module, &module_wit, &input_type, output_type.as_deref())?;
             let metadata = store
                 .get_type(&keyspace)?
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
-            let keys = collect_keys(&store, &keyspace, key, prefix.as_deref(), start.as_deref(), end.as_deref(), limit)?;
+            let keys = collect_keys(
+                &store,
+                &keyspace,
+                key,
+                prefix.as_deref(),
+                start.as_deref(),
+                end.as_deref(),
+                limit,
+            )?;
             let mut stats = ProcessingStats::new();
 
             for k in keys {
@@ -715,12 +717,21 @@ fn run(cli: Cli) -> Result<(), AppError> {
             path,
         } => {
             let store = KvStore::open(&path)?;
-            let mut runner = TypedRunner::new(&module, &module_wit, &input_type, Some(&state_type))?;
+            let mut runner =
+                TypedRunner::new(&module, &module_wit, &input_type, Some(&state_type))?;
             let metadata = store
                 .get_type(&keyspace)?
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
-            let keys = collect_keys(&store, &keyspace, None, prefix.as_deref(), start.as_deref(), end.as_deref(), limit)?;
+            let keys = collect_keys(
+                &store,
+                &keyspace,
+                None,
+                prefix.as_deref(),
+                start.as_deref(),
+                end.as_deref(),
+                limit,
+            )?;
             let mut state = runner.call_init_state(metadata.type_version)?;
             let mut stats = ProcessingStats::new();
 
@@ -750,14 +761,16 @@ fn run(cli: Cli) -> Result<(), AppError> {
     }
 }
 
-fn load_wit_type(wit_path: &PathBuf, type_name: Option<&str>) -> Result<(Resolve, TypeId), AppError> {
+fn load_wit_type(
+    wit_path: &PathBuf,
+    type_name: Option<&str>,
+) -> Result<(Resolve, TypeId), AppError> {
     let mut resolve = Resolve::new();
     resolve.push_path(wit_path)?;
 
     let type_id = match type_name {
-        Some(name) => {
-            find_type_by_name(&resolve, name).ok_or_else(|| AppError::TypeNotFound(name.to_string()))
-        }
+        Some(name) => find_type_by_name(&resolve, name)
+            .ok_or_else(|| AppError::TypeNotFound(name.to_string())),
         None => find_first_named_type(&resolve).ok_or(AppError::NoTypes),
     }?;
 
@@ -806,7 +819,10 @@ impl ProcessingStats {
     fn print_map_summary(&self) {
         eprintln!(
             "Processed {} keys: {} transformed, {} filtered out, {} errors",
-            self.processed, self.transformed, self.filtered, self.errors.len()
+            self.processed,
+            self.transformed,
+            self.filtered,
+            self.errors.len()
         );
         for (k, err) in &self.errors {
             eprintln!("  Error for '{}': {}", k, err);
@@ -816,7 +832,8 @@ impl ProcessingStats {
     fn print_reduce_summary(&self) {
         eprintln!(
             "Reduced {} values, {} errors",
-            self.processed, self.errors.len()
+            self.processed,
+            self.errors.len()
         );
         for (k, err) in &self.errors {
             eprintln!("  Error for '{}': {}", k, err);

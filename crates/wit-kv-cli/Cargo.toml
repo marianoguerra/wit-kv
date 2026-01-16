@@ -12,12 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 wit-kv = { workspace = true, features = ["kv", "wasm"] }
-wit-kv-abi.workspace = true
 clap.workspace = true
 anyhow.workspace = true
-wasm-wave.workspace = true
 thiserror.workspace = true
-wit-parser.workspace = true
 
 [lints]
 workspace = true

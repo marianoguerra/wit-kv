@@ -82,10 +82,18 @@ impl std::fmt::Display for StateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StateError::OpenDatabase { name, path, source } => {
-                write!(f, "Failed to open database '{}' at '{}': {}", name, path, source)
+                write!(
+                    f,
+                    "Failed to open database '{}' at '{}': {}",
+                    name, path, source
+                )
             }
             StateError::InitDatabase { name, path, source } => {
-                write!(f, "Failed to initialize database '{}' at '{}': {}", name, path, source)
+                write!(
+                    f,
+                    "Failed to initialize database '{}' at '{}': {}",
+                    name, path, source
+                )
             }
         }
     }

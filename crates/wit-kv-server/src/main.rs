@@ -12,7 +12,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
-use server::{init_logging, router, AppState, Config, CorsConfig};
+use server::{AppState, Config, CorsConfig, init_logging, router};
 
 /// wit-kv HTTP API server.
 #[derive(Parser, Debug)]
@@ -103,7 +103,10 @@ async fn main() -> anyhow::Result<()> {
     // Apply CORS layer
     let cors = build_cors_layer(&config.cors);
     if config.cors.enabled {
-        tracing::info!("CORS enabled with {} allowed origin(s)", config.cors.allow_origins.len());
+        tracing::info!(
+            "CORS enabled with {} allowed origin(s)",
+            config.cors.allow_origins.len()
+        );
     } else {
         tracing::info!("CORS disabled (denying cross-origin requests)");
     }

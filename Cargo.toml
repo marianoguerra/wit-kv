@@ -41,11 +41,9 @@ crc32fast = "1"
 
 # WASM execution support
 wasmtime = { version = "40.0.2", features = ["component-model"] }
-wit-component = { version = "0.244.0", features = ["dummy-module"] }
 
 # Server dependencies
 axum = { version = "0.8", features = ["multipart"] }
-axum-extra = { version = "0.12", features = ["typed-header"] }
 tokio = { version = "1", features = ["full"] }
 toml = "0.9"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }

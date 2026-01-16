@@ -3,10 +3,10 @@
 use std::fs::OpenOptions;
 use std::io::{self, IsTerminal};
 use tracing_subscriber::{
+    EnvFilter,
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    EnvFilter,
 };
 
 use super::config::{LogFormat, LoggingConfig};

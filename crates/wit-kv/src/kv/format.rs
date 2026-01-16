@@ -6,11 +6,11 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use wasm_wave::value::{resolve_wit_type, Type as WaveType, Value};
+use wasm_wave::value::{Type as WaveType, Value, resolve_wit_type};
 use wasm_wave::wasm::{WasmType, WasmValue};
 use wit_parser::{Resolve, Type, TypeId};
 
-use crate::{find_type_by_name, CanonicalAbi, LinearMemory};
+use crate::{CanonicalAbi, LinearMemory, find_type_by_name};
 
 use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};
@@ -18,8 +18,7 @@ use super::version::SemanticVersion;
 
 /// Helper to find a type by name and return an error if not found.
 fn require_type(resolve: &Resolve, name: &str) -> Result<TypeId, KvError> {
-    find_type_by_name(resolve, name)
-        .ok_or_else(|| KvError::TypeNotFound(name.to_string()))
+    find_type_by_name(resolve, name).ok_or_else(|| KvError::TypeNotFound(name.to_string()))
 }
 
 /// Helper to resolve a WIT type to a WaveType.
@@ -115,7 +114,10 @@ fn get_field<'a>(fields: &'a RecordFields<'_>, name: &str) -> Result<&'a Value, 
 }
 
 /// Helper to create a semantic-version WAVE value
-fn make_semantic_version(version: &SemanticVersion, parent_type: &WaveType) -> Result<Value, KvError> {
+fn make_semantic_version(
+    version: &SemanticVersion,
+    parent_type: &WaveType,
+) -> Result<Value, KvError> {
     let version_type = get_field_type(parent_type, "type-version")
         .ok_or_else(|| KvError::InvalidFormat("Missing type-version field type".to_string()))?;
 
@@ -189,9 +191,11 @@ impl StoredValue {
         let type_version_val = make_semantic_version(&self.type_version, wave_type)?;
 
         // Build the list<u8> for value field (pass iterator directly to avoid intermediate Vec)
-        let value_val =
-            Value::make_list(&value_field_type, self.value.iter().map(|&b| Value::make_u8(b)))
-                .map_err(|e| KvError::WaveParse(e.to_string()))?;
+        let value_val = Value::make_list(
+            &value_field_type,
+            self.value.iter().map(|&b| Value::make_u8(b)),
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Build the option<list<u8>> for memory field
         let memory_val = match &self.memory {
@@ -314,8 +318,12 @@ impl KeyspaceMetadata {
         let fields: RecordFields<'_> = value.unwrap_record().collect();
 
         let name = get_field(&fields, "name")?.unwrap_string().to_string();
-        let qualified_name = get_field(&fields, "qualified-name")?.unwrap_string().to_string();
-        let wit_definition = get_field(&fields, "wit-definition")?.unwrap_string().to_string();
+        let qualified_name = get_field(&fields, "qualified-name")?
+            .unwrap_string()
+            .to_string();
+        let wit_definition = get_field(&fields, "wit-definition")?
+            .unwrap_string()
+            .to_string();
         let type_name = get_field(&fields, "type-name")?.unwrap_string().to_string();
         let type_version = extract_semantic_version(get_field(&fields, "type-version")?)?;
         let type_hash = get_field(&fields, "type-hash")?.unwrap_u32();
@@ -423,16 +431,18 @@ impl BinaryExport {
             .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
 
         // Build the list<u8> for buffer field (pass iterator directly to avoid intermediate Vec)
-        let buffer_val =
-            Value::make_list(&buffer_field_type, self.buffer.iter().map(|&b| Value::make_u8(b)))
-                .map_err(|e| KvError::WaveParse(e.to_string()))?;
+        let buffer_val = Value::make_list(
+            &buffer_field_type,
+            self.buffer.iter().map(|&b| Value::make_u8(b)),
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Build the option<list<u8>> for memory field
         let memory_val = match &self.memory {
             Some(mem) => {
-                let inner_list_type = memory_field_type
-                    .option_some_type()
-                    .ok_or_else(|| KvError::InvalidFormat("Expected option type for memory".to_string()))?;
+                let inner_list_type = memory_field_type.option_some_type().ok_or_else(|| {
+                    KvError::InvalidFormat("Expected option type for memory".to_string())
+                })?;
 
                 let mem_list_val =
                     Value::make_list(&inner_list_type, mem.iter().map(|&b| Value::make_u8(b)))
@@ -441,14 +451,15 @@ impl BinaryExport {
                 Value::make_option(&memory_field_type, Some(mem_list_val))
                     .map_err(|e| KvError::WaveParse(e.to_string()))?
             }
-            None => {
-                Value::make_option(&memory_field_type, None)
-                    .map_err(|e| KvError::WaveParse(e.to_string()))?
-            }
+            None => Value::make_option(&memory_field_type, None)
+                .map_err(|e| KvError::WaveParse(e.to_string()))?,
         };
 
-        Value::make_record(wave_type, vec![("value", buffer_val), ("memory", memory_val)])
-            .map_err(|e| KvError::WaveParse(e.to_string()))
+        Value::make_record(
+            wave_type,
+            vec![("value", buffer_val), ("memory", memory_val)],
+        )
+        .map_err(|e| KvError::WaveParse(e.to_string()))
     }
 
     fn from_wave_value(value: &Value) -> Result<Self, KvError> {
@@ -519,7 +530,9 @@ impl KeyList {
 
         let keys_val = Value::make_list(
             &keys_field_type,
-            self.keys.iter().map(|k| Value::make_string(Cow::Borrowed(k))),
+            self.keys
+                .iter()
+                .map(|k| Value::make_string(Cow::Borrowed(k))),
         )
         .map_err(|e| KvError::WaveParse(e.to_string()))?;
 
@@ -641,7 +654,10 @@ impl DatabaseList {
     /// Create a new DatabaseList from a vector of names.
     pub fn from_names(names: Vec<&str>) -> Self {
         Self {
-            databases: names.into_iter().map(|n| DatabaseInfo::new(n.to_string())).collect(),
+            databases: names
+                .into_iter()
+                .map(|n| DatabaseInfo::new(n.to_string()))
+                .collect(),
         }
     }
 
@@ -780,11 +796,7 @@ mod tests {
 
     #[test]
     fn test_binary_export_from_stored() {
-        let stored = StoredValue::new(
-            SemanticVersion::INITIAL,
-            vec![1, 2, 3],
-            Some(vec![4, 5, 6]),
-        );
+        let stored = StoredValue::new(SemanticVersion::INITIAL, vec![1, 2, 3], Some(vec![4, 5, 6]));
         let export = BinaryExport::from_stored(&stored);
 
         assert_eq!(export.buffer, stored.value);

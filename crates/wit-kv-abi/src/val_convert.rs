@@ -5,9 +5,9 @@
 //! WAVE text format for display.
 
 use thiserror::Error;
-use wasmtime::component::{types, Val};
 use wasm_wave::value::Value;
 use wasm_wave::wasm::{WasmType, WasmValue};
+use wasmtime::component::{Val, types};
 
 /// Errors that can occur during Val <-> Value conversion.
 #[derive(Error, Debug)]
@@ -46,9 +46,9 @@ pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, ValCo
                 let wave_field = wave_fields
                     .iter()
                     .find(|(name, _)| name.as_ref() == field.name)
-                    .ok_or_else(|| ValConvertError::TypeMismatch(
-                        format!("field '{}' not found", field.name),
-                    ))?;
+                    .ok_or_else(|| {
+                        ValConvertError::TypeMismatch(format!("field '{}' not found", field.name))
+                    })?;
 
                 let field_val = wave_to_val(&wave_field.1, &field.ty)?;
                 val_fields.push((field.name.to_string(), field_val));
@@ -89,9 +89,9 @@ pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, ValCo
             let case = variant_type
                 .cases()
                 .find(|c| c.name == case_name.as_ref())
-                .ok_or_else(|| ValConvertError::TypeMismatch(
-                    format!("variant case '{}' not found", case_name),
-                ))?;
+                .ok_or_else(|| {
+                    ValConvertError::TypeMismatch(format!("variant case '{}' not found", case_name))
+                })?;
 
             let payload_val = match (payload, &case.ty) {
                 (Some(p), Some(ty)) => Some(Box::new(wave_to_val(&p, ty)?)),
@@ -99,7 +99,7 @@ pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, ValCo
                 _ => {
                     return Err(ValConvertError::TypeMismatch(
                         "variant payload mismatch".to_string(),
-                    ))
+                    ));
                 }
             };
 
@@ -119,7 +119,7 @@ pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, ValCo
                     _ => {
                         return Err(ValConvertError::TypeMismatch(
                             "result ok payload mismatch".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Val::Result(Ok(ok_inner)))
@@ -131,7 +131,7 @@ pub fn wave_to_val(wave: &Value, target_type: &types::Type) -> Result<Val, ValCo
                     _ => {
                         return Err(ValConvertError::TypeMismatch(
                             "result err payload mismatch".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Val::Result(Err(err_inner)))
@@ -181,52 +181,51 @@ pub fn val_to_wave(
                         .iter()
                         .find(|(n, _): &&(std::borrow::Cow<str>, _)| n.as_ref() == name)
                         .map(|(_, ty)| ty)
-                        .ok_or_else(|| ValConvertError::TypeMismatch(
-                            format!("field '{}' not found in wave type", name),
-                        ))?;
+                        .ok_or_else(|| {
+                            ValConvertError::TypeMismatch(format!(
+                                "field '{}' not found in wave type",
+                                name
+                            ))
+                        })?;
 
                     let wave_val = val_to_wave(val, field_type)?;
                     Ok((name.as_str(), wave_val))
                 })
                 .collect();
 
-            Value::make_record(wave_type, wave_fields?).map_err(|e| ValConvertError::ConstructionFailed(
-                format!("failed to construct record: {}", e),
-            ))
+            Value::make_record(wave_type, wave_fields?).map_err(|e| {
+                ValConvertError::ConstructionFailed(format!("failed to construct record: {}", e))
+            })
         }
 
         Val::List(elements) => {
             let elem_type = wave_type
                 .list_element_type()
-                .ok_or_else(|| ValConvertError::TypeMismatch(
-                    "expected list type".to_string(),
-                ))?;
+                .ok_or_else(|| ValConvertError::TypeMismatch("expected list type".to_string()))?;
 
             let wave_elems: Result<Vec<_>, _> = elements
                 .iter()
                 .map(|e| val_to_wave(e, &elem_type))
                 .collect();
 
-            Value::make_list(wave_type, wave_elems?).map_err(|e| ValConvertError::ConstructionFailed(
-                format!("failed to construct list: {}", e),
-            ))
+            Value::make_list(wave_type, wave_elems?).map_err(|e| {
+                ValConvertError::ConstructionFailed(format!("failed to construct list: {}", e))
+            })
         }
 
         Val::Option(opt) => {
             let inner = match opt {
                 Some(inner_val) => {
                     let inner_type = wave_type.option_some_type().ok_or_else(|| {
-                        ValConvertError::TypeMismatch(
-                            "expected option type".to_string(),
-                        )
+                        ValConvertError::TypeMismatch("expected option type".to_string())
                     })?;
                     Some(val_to_wave(inner_val, &inner_type)?)
                 }
                 None => None,
             };
-            Value::make_option(wave_type, inner).map_err(|e| ValConvertError::ConstructionFailed(
-                format!("failed to construct option: {}", e),
-            ))
+            Value::make_option(wave_type, inner).map_err(|e| {
+                ValConvertError::ConstructionFailed(format!("failed to construct option: {}", e))
+            })
         }
 
         Val::Tuple(elements) => {
@@ -243,16 +242,14 @@ pub fn val_to_wave(
                 .map(|(e, ty)| val_to_wave(e, ty))
                 .collect();
 
-            Value::make_tuple(wave_type, wave_elems?).map_err(|e| ValConvertError::ConstructionFailed(
-                format!("failed to construct tuple: {}", e),
-            ))
+            Value::make_tuple(wave_type, wave_elems?).map_err(|e| {
+                ValConvertError::ConstructionFailed(format!("failed to construct tuple: {}", e))
+            })
         }
 
-        Val::Enum(case_name) => {
-            Value::make_enum(wave_type, case_name).map_err(|e| ValConvertError::ConstructionFailed(
-                format!("failed to construct enum: {}", e),
-            ))
-        }
+        Val::Enum(case_name) => Value::make_enum(wave_type, case_name).map_err(|e| {
+            ValConvertError::ConstructionFailed(format!("failed to construct enum: {}", e))
+        }),
 
         Val::Variant(case_name, payload) => {
             // Collect variant cases first
@@ -270,9 +267,12 @@ pub fn val_to_wave(
                         .iter()
                         .find(|(name, _): &&(std::borrow::Cow<str>, _)| name.as_ref() == case_name)
                         .and_then(|(_, ty)| ty.as_ref())
-                        .ok_or_else(|| ValConvertError::TypeMismatch(
-                            format!("variant case '{}' has no payload type", case_name),
-                        ))?;
+                        .ok_or_else(|| {
+                            ValConvertError::TypeMismatch(format!(
+                                "variant case '{}' has no payload type",
+                                case_name
+                            ))
+                        })?;
 
                     Some(val_to_wave(p, case_type)?)
                 }
@@ -280,25 +280,21 @@ pub fn val_to_wave(
             };
 
             Value::make_variant(wave_type, case_name, payload_wave).map_err(|e| {
-                ValConvertError::ConstructionFailed(
-                    format!("failed to construct variant: {}", e),
-                )
+                ValConvertError::ConstructionFailed(format!("failed to construct variant: {}", e))
             })
         }
 
         Val::Flags(active) => {
             let flags: Vec<&str> = active.iter().map(|s| s.as_str()).collect();
-            Value::make_flags(wave_type, flags).map_err(|e| ValConvertError::ConstructionFailed(
-                format!("failed to construct flags: {}", e),
-            ))
+            Value::make_flags(wave_type, flags).map_err(|e| {
+                ValConvertError::ConstructionFailed(format!("failed to construct flags: {}", e))
+            })
         }
 
         Val::Result(result) => {
-            let (ok_type, err_type) = wave_type.result_types().ok_or_else(|| {
-                ValConvertError::TypeMismatch(
-                    "expected result type".to_string(),
-                )
-            })?;
+            let (ok_type, err_type) = wave_type
+                .result_types()
+                .ok_or_else(|| ValConvertError::TypeMismatch("expected result type".to_string()))?;
 
             match result {
                 Ok(ok_val) => {
@@ -308,13 +304,14 @@ pub fn val_to_wave(
                         _ => {
                             return Err(ValConvertError::TypeMismatch(
                                 "result ok payload mismatch".to_string(),
-                            ))
+                            ));
                         }
                     };
                     Value::make_result(wave_type, Ok(ok_wave)).map_err(|e| {
-                        ValConvertError::ConstructionFailed(
-                            format!("failed to construct result: {}", e),
-                        )
+                        ValConvertError::ConstructionFailed(format!(
+                            "failed to construct result: {}",
+                            e
+                        ))
                     })
                 }
                 Err(err_val) => {
@@ -324,13 +321,14 @@ pub fn val_to_wave(
                         _ => {
                             return Err(ValConvertError::TypeMismatch(
                                 "result err payload mismatch".to_string(),
-                            ))
+                            ));
                         }
                     };
                     Value::make_result(wave_type, Err(err_wave)).map_err(|e| {
-                        ValConvertError::ConstructionFailed(
-                            format!("failed to construct result: {}", e),
-                        )
+                        ValConvertError::ConstructionFailed(format!(
+                            "failed to construct result: {}",
+                            e
+                        ))
                     })
                 }
             }

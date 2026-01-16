@@ -7,7 +7,7 @@ use wasm_wave::value::Value;
 use wit_parser::{Resolve, Type, TypeId};
 
 use crate::logging::{debug, error, info, trace, warn};
-use crate::{find_first_named_type, find_type_by_name, CanonicalAbi, LinearMemory};
+use crate::{CanonicalAbi, LinearMemory, find_first_named_type, find_type_by_name};
 use wit_kv_abi::val_to_wave;
 
 use super::error::KvError;
@@ -197,18 +197,14 @@ impl KvStore {
 
         // Find the type
         let type_id = match type_name {
-            Some(tn) => {
-                find_type_by_name(&resolve, tn).ok_or_else(|| {
-                    error!(type_name = tn, "type not found in WIT");
-                    KvError::TypeNotFound(tn.to_string())
-                })?
-            }
-            None => {
-                find_first_named_type(&resolve).ok_or_else(|| {
-                    error!("no named type found in WIT");
-                    KvError::TypeNotFound("No named type found".to_string())
-                })?
-            }
+            Some(tn) => find_type_by_name(&resolve, tn).ok_or_else(|| {
+                error!(type_name = tn, "type not found in WIT");
+                KvError::TypeNotFound(tn.to_string())
+            })?,
+            None => find_first_named_type(&resolve).ok_or_else(|| {
+                error!("no named type found in WIT");
+                KvError::TypeNotFound("No named type found".to_string())
+            })?,
         };
 
         let type_def = resolve
@@ -246,7 +242,9 @@ impl KvStore {
 
         // Create data keyspace for this keyspace
         let data_keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-        let _ = self.db.keyspace(&data_keyspace_name, KeyspaceCreateOptions::default)?;
+        let _ = self
+            .db
+            .keyspace(&data_keyspace_name, KeyspaceCreateOptions::default)?;
 
         self.db.persist(PersistMode::SyncAll)?;
 
@@ -267,7 +265,11 @@ impl KvStore {
 
     /// Delete a keyspace type (and optionally its data).
     pub fn delete_type(&self, keyspace: &str, delete_data: bool) -> Result<(), KvError> {
-        debug!(keyspace = keyspace, delete_data = delete_data, "deleting type");
+        debug!(
+            keyspace = keyspace,
+            delete_data = delete_data,
+            "deleting type"
+        );
         let key = format!("{}{}", META_TYPES_PREFIX, keyspace);
 
         // Get metadata to find qualified name
@@ -285,7 +287,10 @@ impl KvStore {
         // Delete data keyspace if requested
         if delete_data {
             let data_keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-            if let Ok(data_keyspace) = self.db.keyspace(&data_keyspace_name, KeyspaceCreateOptions::default) {
+            if let Ok(data_keyspace) = self
+                .db
+                .keyspace(&data_keyspace_name, KeyspaceCreateOptions::default)
+            {
                 // Clear all keys - skip any keys that fail to read
                 let keys: Vec<Vec<u8>> = data_keyspace
                     .iter()
@@ -299,7 +304,11 @@ impl KvStore {
         }
 
         self.db.persist(PersistMode::SyncAll)?;
-        info!(keyspace = keyspace, delete_data = delete_data, "type deleted");
+        info!(
+            keyspace = keyspace,
+            delete_data = delete_data,
+            "type deleted"
+        );
         Ok(())
     }
 
@@ -328,7 +337,12 @@ impl KvStore {
 
     /// Set a value in a keyspace.
     pub fn set(&self, keyspace: &str, key: &str, wave_value: &str) -> Result<(), KvError> {
-        debug!(keyspace = keyspace, key = key, value_len = wave_value.len(), "setting value");
+        debug!(
+            keyspace = keyspace,
+            key = key,
+            value_len = wave_value.len(),
+            "setting value"
+        );
 
         let metadata = self
             .get_type(keyspace)?
@@ -369,7 +383,9 @@ impl KvStore {
         let (buffer, mem) = stored.encode()?;
 
         let keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-        let ks = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
+        let ks = self
+            .db
+            .keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
 
         self.store_with_memory(&ks, key, &buffer, &mem)?;
         self.db.persist(PersistMode::SyncAll)?;
@@ -387,7 +403,9 @@ impl KvStore {
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
 
         let keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-        let ks = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
+        let ks = self
+            .db
+            .keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
 
         // Load stored value
         let Some(stored) = self.load_stored_value(&ks, key)? else {
@@ -421,7 +439,8 @@ impl KvStore {
         let value = val_to_wave(&val, &wave_type).map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Convert to WAVE text
-        let wave_str = wasm_wave::to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))?;
+        let wave_str =
+            wasm_wave::to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         debug!(keyspace = keyspace, key = key, "value retrieved");
         Ok(Some(wave_str))
@@ -434,7 +453,9 @@ impl KvStore {
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
 
         let keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-        let ks = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
+        let ks = self
+            .db
+            .keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
 
         self.load_stored_value(&ks, key)
     }
@@ -448,7 +469,9 @@ impl KvStore {
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
 
         let keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-        let ks = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
+        let ks = self
+            .db
+            .keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
 
         let memory_key = format!("{}.memory", key);
         ks.remove(key)?;
@@ -487,7 +510,9 @@ impl KvStore {
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
 
         let keyspace_name = format!("{}{}", DATA_PREFIX, keyspace);
-        let ks = self.db.keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
+        let ks = self
+            .db
+            .keyspace(&keyspace_name, KeyspaceCreateOptions::default)?;
 
         let mut keys = Vec::new();
 
@@ -541,9 +566,10 @@ impl KvStore {
         type_id: TypeId,
         type_name: &str,
     ) -> Result<String, KvError> {
-        let type_def = resolve.types.get(type_id).ok_or_else(|| {
-            KvError::TypeNotFound(format!("Type id {:?} not found", type_id))
-        })?;
+        let type_def = resolve
+            .types
+            .get(type_id)
+            .ok_or_else(|| KvError::TypeNotFound(format!("Type id {:?} not found", type_id)))?;
 
         // Try to find the interface and package
         match type_def.owner {

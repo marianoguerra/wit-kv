@@ -262,7 +262,10 @@ path = "./data"
 
         assert!(config.cors.enabled);
         assert_eq!(config.cors.allow_origins.len(), 2);
-        assert_eq!(config.cors.allow_origins.first().unwrap(), "http://localhost:3000");
+        assert_eq!(
+            config.cors.allow_origins.first().unwrap(),
+            "http://localhost:3000"
+        );
         assert_eq!(config.cors.allow_methods.len(), 2);
         assert_eq!(config.cors.allow_headers.len(), 2);
         assert!(config.cors.allow_credentials);

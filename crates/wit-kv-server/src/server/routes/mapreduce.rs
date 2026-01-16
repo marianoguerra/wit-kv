@@ -1,8 +1,8 @@
 //! Map/reduce operation handlers.
 
 use axum::{
-    extract::{Multipart, Path, State},
     Json,
+    extract::{Multipart, Path, State},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
@@ -110,10 +110,9 @@ async fn extract_map_multipart(
                     .text()
                     .await
                     .map_err(|e| ApiError::invalid_multipart(e.to_string()))?;
-                config = Some(
-                    serde_json::from_str(&text)
-                        .map_err(|e| ApiError::invalid_multipart(format!("Invalid config JSON: {}", e)))?,
-                );
+                config = Some(serde_json::from_str(&text).map_err(|e| {
+                    ApiError::invalid_multipart(format!("Invalid config JSON: {}", e))
+                })?);
             }
             _ => {
                 // Ignore unknown fields
@@ -154,10 +153,9 @@ async fn extract_reduce_multipart(
                     .text()
                     .await
                     .map_err(|e| ApiError::invalid_multipart(e.to_string()))?;
-                config = Some(
-                    serde_json::from_str(&text)
-                        .map_err(|e| ApiError::invalid_multipart(format!("Invalid config JSON: {}", e)))?,
-                );
+                config = Some(serde_json::from_str(&text).map_err(|e| {
+                    ApiError::invalid_multipart(format!("Invalid config JSON: {}", e))
+                })?);
             }
             _ => {
                 // Ignore unknown fields
@@ -387,11 +385,7 @@ pub async fn reduce_operation(
         warn!(key = %key, error = %error, "reduce error for key");
     }
 
-    info!(
-        processed,
-        error_count,
-        "reduce operation completed"
-    );
+    info!(processed, error_count, "reduce operation completed");
 
     Ok(Json(ReduceResult {
         processed,

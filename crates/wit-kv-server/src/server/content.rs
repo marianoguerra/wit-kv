@@ -3,7 +3,7 @@
 use axum::{
     body::Bytes,
     extract::FromRequestParts,
-    http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
 
@@ -31,7 +31,11 @@ pub enum ContentFormat {
 impl ContentFormat {
     /// Parse content format from Content-Type header value.
     pub fn from_content_type(content_type: &str) -> Result<Self, ApiError> {
-        let mime = content_type.split(';').next().unwrap_or(content_type).trim();
+        let mime = content_type
+            .split(';')
+            .next()
+            .unwrap_or(content_type)
+            .trim();
 
         match mime {
             MIME_WASM_WAVE | MIME_TEXT_PLAIN | "" => Ok(ContentFormat::Wave),
@@ -94,9 +98,9 @@ where
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let format = match parts.headers.get(header::CONTENT_TYPE) {
             Some(ct) => {
-                let ct_str = ct.to_str().map_err(|_| {
-                    ApiError::unsupported_media_type("invalid Content-Type header")
-                })?;
+                let ct_str = ct
+                    .to_str()
+                    .map_err(|_| ApiError::unsupported_media_type("invalid Content-Type header"))?;
                 ContentFormat::from_content_type(ct_str)?
             }
             None => ContentFormat::Wave,

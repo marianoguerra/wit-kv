@@ -1,11 +1,11 @@
 //! Type management handlers.
 
 use axum::{
+    Json,
     body::Bytes,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -143,8 +143,9 @@ pub async fn set_type(
     let store = state.get_database(&database)?;
 
     // The WIT definition is provided in the request body
-    let wit_content = std::str::from_utf8(&body)
-        .map_err(|e| ApiError::invalid_wave_format(format!("Invalid UTF-8 in WIT definition: {}", e)))?;
+    let wit_content = std::str::from_utf8(&body).map_err(|e| {
+        ApiError::invalid_wave_format(format!("Invalid UTF-8 in WIT definition: {}", e))
+    })?;
 
     // Write to a temporary file since set_type expects a file path
     let mut temp_file = NamedTempFile::new()

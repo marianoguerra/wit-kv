@@ -126,7 +126,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "record".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 
@@ -138,12 +138,13 @@ impl CanonicalAbi<'_> {
                     .collect();
 
                 for (i, field_def) in r.fields.iter().enumerate() {
-                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("field offset at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
+                    let (field_off, _) =
+                        field_offsets
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("field offset at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
                     let (_, field_val) = fields
                         .iter()
                         .find(|(name, _)| name == &field_def.name)
@@ -151,7 +152,13 @@ impl CanonicalAbi<'_> {
                             expected: format!("field '{}'", field_def.name),
                             got: "missing".to_string(),
                         })?;
-                    self.lower_val_into(field_val, &field_def.ty, buffer, offset + field_off, memory)?;
+                    self.lower_val_into(
+                        field_val,
+                        &field_def.ty,
+                        buffer,
+                        offset + field_off,
+                        memory,
+                    )?;
                 }
             }
             TypeDefKind::Tuple(t) => {
@@ -161,7 +168,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "tuple".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 
@@ -173,16 +180,19 @@ impl CanonicalAbi<'_> {
                     .collect();
 
                 for (i, wit_ty) in t.types.iter().enumerate() {
-                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("tuple offset at index {}", i),
+                    let (field_off, _) =
+                        field_offsets
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("tuple offset at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let elem = elements
+                        .get(i)
+                        .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                            expected: format!("tuple element at index {}", i),
                             got: "missing".to_string(),
-                        }
-                    })?;
-                    let elem = elements.get(i).ok_or_else(|| CanonicalAbiError::TypeMismatch {
-                        expected: format!("tuple element at index {}", i),
-                        got: "missing".to_string(),
-                    })?;
+                        })?;
                     self.lower_val_into(elem, wit_ty, buffer, offset + field_off, memory)?;
                 }
             }
@@ -193,7 +203,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "list".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 
@@ -234,7 +244,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "option".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 }
             }
@@ -272,7 +282,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "result".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 }
             }
@@ -283,18 +293,16 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "variant".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 
-                let case_idx = v
-                    .cases
-                    .iter()
-                    .position(|c| &c.name == case_name)
-                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                let case_idx = v.cases.iter().position(|c| &c.name == case_name).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant: 0,
                         num_cases: v.cases.len(),
-                    })?;
+                    },
+                )?;
 
                 self.write_discriminant(buffer, offset, v.tag(), case_idx as u32)?;
 
@@ -302,12 +310,13 @@ impl CanonicalAbi<'_> {
                     let payload_offset = self
                         .sizes
                         .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
-                    let case = v.cases.get(case_idx).ok_or(
-                        CanonicalAbiError::InvalidDiscriminant {
-                            discriminant: case_idx as u32,
-                            num_cases: v.cases.len(),
-                        },
-                    )?;
+                    let case =
+                        v.cases
+                            .get(case_idx)
+                            .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                                discriminant: case_idx as u32,
+                                num_cases: v.cases.len(),
+                            })?;
                     if let Some(payload_ty) = &case.ty {
                         self.lower_val_into(
                             payload_val,
@@ -326,18 +335,16 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "enum".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 
-                let case_idx = e
-                    .cases
-                    .iter()
-                    .position(|c| &c.name == case_name)
-                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                let case_idx = e.cases.iter().position(|c| &c.name == case_name).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant: 0,
                         num_cases: e.cases.len(),
-                    })?;
+                    },
+                )?;
 
                 self.write_discriminant(buffer, offset, e.tag(), case_idx as u32)?;
             }
@@ -348,7 +355,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "flags".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 
@@ -396,7 +403,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::TypeMismatch {
                             expected: "list".to_string(),
                             got: format!("{:?}", val),
-                        })
+                        });
                     }
                 };
 

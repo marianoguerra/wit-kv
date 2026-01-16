@@ -54,7 +54,11 @@ pub struct SemanticVersion {
 
 impl SemanticVersion {
     pub const fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 
     /// Initial version for new types (0.1.0).
@@ -93,7 +97,11 @@ impl SemanticVersion {
         if parts.next().is_some() {
             return None;
         }
-        Some(Self { major, minor, patch })
+        Some(Self {
+            major,
+            minor,
+            patch,
+        })
     }
 }
 
@@ -173,7 +181,11 @@ impl FromStr for SemanticVersion {
             });
         }
 
-        Ok(Self { major, minor, patch })
+        Ok(Self {
+            major,
+            minor,
+            patch,
+        })
     }
 }
 
@@ -183,8 +195,14 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert_eq!(SemanticVersion::parse("0.1.0"), Some(SemanticVersion::new(0, 1, 0)));
-        assert_eq!(SemanticVersion::parse("1.2.3"), Some(SemanticVersion::new(1, 2, 3)));
+        assert_eq!(
+            SemanticVersion::parse("0.1.0"),
+            Some(SemanticVersion::new(0, 1, 0))
+        );
+        assert_eq!(
+            SemanticVersion::parse("1.2.3"),
+            Some(SemanticVersion::new(1, 2, 3))
+        );
         assert_eq!(SemanticVersion::parse("invalid"), None);
         assert_eq!(SemanticVersion::parse("1.2"), None);
     }

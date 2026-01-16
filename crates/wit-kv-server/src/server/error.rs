@@ -1,9 +1,9 @@
 //! API error types and JSON response formatting.
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 use tracing::{debug, error};
@@ -67,7 +67,10 @@ impl ApiError {
         Self::new(
             StatusCode::NOT_FOUND,
             "KEYSPACE_NOT_FOUND",
-            format!("Keyspace '{}' not found in database '{}'", keyspace, database),
+            format!(
+                "Keyspace '{}' not found in database '{}'",
+                keyspace, database
+            ),
         )
         .with_details(serde_json::json!({ "database": database, "keyspace": keyspace }))
     }
@@ -77,7 +80,10 @@ impl ApiError {
         Self::new(
             StatusCode::NOT_FOUND,
             "KEY_NOT_FOUND",
-            format!("Key '{}' not found in keyspace '{}' of database '{}'", key, keyspace, database),
+            format!(
+                "Key '{}' not found in keyspace '{}' of database '{}'",
+                key, keyspace, database
+            ),
         )
         .with_details(serde_json::json!({ "database": database, "keyspace": keyspace, "key": key }))
     }
@@ -116,7 +122,10 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_REQUEST,
             "MISSING_FIELD",
-            format!("Required field '{}' is missing from the request", field_name),
+            format!(
+                "Required field '{}' is missing from the request",
+                field_name
+            ),
         )
         .with_details(serde_json::json!({ "field": field_name }))
     }
@@ -188,7 +197,12 @@ impl From<KvError> for ApiError {
                 "TYPE_VERSION_MISMATCH",
                 format!(
                     "Type version mismatch: stored {}.{}.{}, current {}.{}.{}",
-                    stored.major, stored.minor, stored.patch, current.major, current.minor, current.patch
+                    stored.major,
+                    stored.minor,
+                    stored.patch,
+                    current.major,
+                    current.minor,
+                    current.patch
                 ),
             ),
             KvError::WaveParse(msg) => Self::invalid_wave_format(msg.clone()),
@@ -210,7 +224,11 @@ impl From<WasmError> for ApiError {
                 "Required function '{}' not found in module. Map modules must export 'filter' and 'transform'; reduce modules must export 'init-state' and 'reduce'.",
                 name
             )),
-            WasmError::InvalidSignature { name, expected, actual } => Self::wasm_error(format!(
+            WasmError::InvalidSignature {
+                name,
+                expected,
+                actual,
+            } => Self::wasm_error(format!(
                 "Function '{}' has wrong signature: expected {}, got {}",
                 name, expected, actual
             )),
@@ -218,10 +236,9 @@ impl From<WasmError> for ApiError {
                 Self::wasm_error(format!("Invalid return type: expected {}", expected))
             }
             WasmError::Trap(msg) => Self::wasm_error(format!("WASM execution error: {}", msg)),
-            WasmError::TypeMismatch { keyspace_type } => Self::wasm_error(format!(
-                "Type mismatch: {}",
-                keyspace_type
-            )),
+            WasmError::TypeMismatch { keyspace_type } => {
+                Self::wasm_error(format!("Type mismatch: {}", keyspace_type))
+            }
             WasmError::ModuleLoad(io_err) => {
                 Self::wasm_error(format!("Failed to load module: {}", io_err))
             }

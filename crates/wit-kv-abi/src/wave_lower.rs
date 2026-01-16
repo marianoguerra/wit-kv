@@ -166,24 +166,27 @@ impl CanonicalAbi<'_> {
                 let field_values: Vec<_> = value.unwrap_record().collect();
 
                 for (i, field_def) in r.fields.iter().enumerate() {
-                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("field offset at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
-                    let (_, wave_field_ty) = wave_fields.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("wave field at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
-                    let (_, field_val) = field_values.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("field value at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
+                    let (field_off, _) =
+                        field_offsets
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("field offset at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let (_, wave_field_ty) =
+                        wave_fields
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("wave field at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let (_, field_val) =
+                        field_values
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("field value at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
                     self.lower_into(
                         field_val.as_ref(),
                         &field_def.ty,
@@ -205,24 +208,27 @@ impl CanonicalAbi<'_> {
                 let elem_values: Vec<_> = value.unwrap_tuple().collect();
 
                 for (i, wit_ty) in t.types.iter().enumerate() {
-                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("tuple offset at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
-                    let wave_elem_ty = wave_types.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("tuple wave type at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
-                    let elem = elem_values.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("tuple element at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
+                    let (field_off, _) =
+                        field_offsets
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("tuple offset at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let wave_elem_ty =
+                        wave_types
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("tuple wave type at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let elem =
+                        elem_values
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("tuple element at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
                     self.lower_into(
                         elem.as_ref(),
                         wit_ty,
@@ -266,27 +272,23 @@ impl CanonicalAbi<'_> {
             }
             TypeDefKind::Enum(e) => {
                 let case_name = value.unwrap_enum();
-                let case_idx = e
-                    .cases
-                    .iter()
-                    .position(|c| c.name == *case_name)
-                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                let case_idx = e.cases.iter().position(|c| c.name == *case_name).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant: 0,
                         num_cases: e.cases.len(),
-                    })?;
+                    },
+                )?;
 
                 self.write_discriminant(buffer, offset, e.tag(), case_idx as u32)?;
             }
             TypeDefKind::Variant(v) => {
                 let (case_name, payload) = value.unwrap_variant();
-                let case_idx = v
-                    .cases
-                    .iter()
-                    .position(|c| c.name == *case_name)
-                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                let case_idx = v.cases.iter().position(|c| c.name == *case_name).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant: 0,
                         num_cases: v.cases.len(),
-                    })?;
+                    },
+                )?;
 
                 self.write_discriminant(buffer, offset, v.tag(), case_idx as u32)?;
 
@@ -294,13 +296,13 @@ impl CanonicalAbi<'_> {
                     let payload_offset = self
                         .sizes
                         .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
-                    let case = v
-                        .cases
-                        .get(case_idx)
-                        .ok_or(CanonicalAbiError::InvalidDiscriminant {
-                            discriminant: case_idx as u32,
-                            num_cases: v.cases.len(),
-                        })?;
+                    let case =
+                        v.cases
+                            .get(case_idx)
+                            .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                                discriminant: case_idx as u32,
+                                num_cases: v.cases.len(),
+                            })?;
                     if let Some(payload_ty) = &case.ty {
                         let wave_cases: Vec<_> = wave_ty.variant_cases().collect();
                         if let Some((_, Some(wave_payload_ty))) = wave_cases.get(case_idx) {
@@ -344,12 +346,13 @@ impl CanonicalAbi<'_> {
             }
             TypeDefKind::Result(r) => {
                 let result_value = value.unwrap_result();
-                let (ok_ty, err_ty) = wave_ty.result_types().ok_or_else(|| {
-                    CanonicalAbiError::TypeMismatch {
-                        expected: "result".to_string(),
-                        got: "non-result".to_string(),
-                    }
-                })?;
+                let (ok_ty, err_ty) =
+                    wave_ty
+                        .result_types()
+                        .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                            expected: "result".to_string(),
+                            got: "non-result".to_string(),
+                        })?;
 
                 let payload_offset = self
                     .sizes
@@ -458,12 +461,13 @@ impl CanonicalAbi<'_> {
             }
             TypeDefKind::FixedSizeList(elem_ty, len) => {
                 let elem_size = self.sizes.size(elem_ty).size_wasm32();
-                let wave_elem_ty = wave_ty.list_element_type().ok_or_else(|| {
-                    CanonicalAbiError::TypeMismatch {
-                        expected: "list".to_string(),
-                        got: "non-list".to_string(),
-                    }
-                })?;
+                let wave_elem_ty =
+                    wave_ty
+                        .list_element_type()
+                        .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                            expected: "list".to_string(),
+                            got: "non-list".to_string(),
+                        })?;
 
                 let elem_values: Vec<_> = value.unwrap_list().collect();
                 for i in 0..*len as usize {

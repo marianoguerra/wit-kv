@@ -60,92 +60,92 @@ impl CanonicalAbi<'_> {
             Type::S8 => Value::make_s8(read_byte(buffer, offset)? as i8),
             Type::U16 => {
                 let aligned = align_to(offset, 2);
-                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 2,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_u16(u16::from_le_bytes(bytes))
             }
             Type::S16 => {
                 let aligned = align_to(offset, 2);
-                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 2,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_s16(i16::from_le_bytes(bytes))
             }
             Type::U32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_u32(u32::from_le_bytes(bytes))
             }
             Type::S32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_s32(i32::from_le_bytes(bytes))
             }
             Type::U64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_u64(u64::from_le_bytes(bytes))
             }
             Type::S64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_s64(i64::from_le_bytes(bytes))
             }
             Type::F32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_f32(f32::from_le_bytes(bytes))
             }
             Type::F64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Value::make_f64(f64::from_le_bytes(bytes))
             }
             Type::Char => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 let code = u32::from_le_bytes(bytes);
                 let c = char::from_u32(code).ok_or(CanonicalAbiError::InvalidChar(code))?;
                 Value::make_char(c)
@@ -228,18 +228,20 @@ impl CanonicalAbi<'_> {
 
                 let mut fields: Vec<(&str, Value)> = Vec::new();
                 for (i, field_def) in r.fields.iter().enumerate() {
-                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("field offset at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
-                    let (_, wave_field_ty) = wave_fields.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("wave field at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
+                    let (field_off, _) =
+                        field_offsets
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("field offset at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let (_, wave_field_ty) =
+                        wave_fields
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("wave field at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
                     let (field_val, _) = self.lift_from(
                         buffer,
                         &field_def.ty,
@@ -250,9 +252,11 @@ impl CanonicalAbi<'_> {
                     fields.push((&field_def.name, field_val));
                 }
 
-                Value::make_record(wave_ty, fields).map_err(|e| CanonicalAbiError::TypeMismatch {
-                    expected: "record".to_string(),
-                    got: e.to_string(),
+                Value::make_record(wave_ty, fields).map_err(|e| {
+                    CanonicalAbiError::TypeMismatch {
+                        expected: "record".to_string(),
+                        got: e.to_string(),
+                    }
                 })?
             }
             TypeDefKind::Tuple(t) => {
@@ -266,53 +270,58 @@ impl CanonicalAbi<'_> {
 
                 let mut elements: Vec<Value> = Vec::new();
                 for (i, wit_ty) in t.types.iter().enumerate() {
-                    let (field_off, _) = field_offsets.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("tuple offset at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
-                    let wave_elem_ty = wave_types.get(i).ok_or_else(|| {
-                        CanonicalAbiError::TypeMismatch {
-                            expected: format!("tuple wave type at index {}", i),
-                            got: "missing".to_string(),
-                        }
-                    })?;
+                    let (field_off, _) =
+                        field_offsets
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("tuple offset at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
+                    let wave_elem_ty =
+                        wave_types
+                            .get(i)
+                            .ok_or_else(|| CanonicalAbiError::TypeMismatch {
+                                expected: format!("tuple wave type at index {}", i),
+                                got: "missing".to_string(),
+                            })?;
                     let (elem_val, _) =
                         self.lift_from(buffer, wit_ty, wave_elem_ty, offset + field_off, memory)?;
                     elements.push(elem_val);
                 }
 
-                Value::make_tuple(wave_ty, elements).map_err(|e| CanonicalAbiError::TypeMismatch {
-                    expected: "tuple".to_string(),
-                    got: e.to_string(),
+                Value::make_tuple(wave_ty, elements).map_err(|e| {
+                    CanonicalAbiError::TypeMismatch {
+                        expected: "tuple".to_string(),
+                        got: e.to_string(),
+                    }
                 })?
             }
             TypeDefKind::Flags(f) => {
                 let flag_names: Vec<_> = wave_ty.flags_names().collect();
-                let flags_value = match f.repr() {
-                    FlagsRepr::U8 => read_byte(buffer, offset)? as u32,
-                    FlagsRepr::U16 => {
-                        let aligned = align_to(offset, 2);
-                        let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
-                            .try_into()
-                            .map_err(|_| CanonicalAbiError::BufferTooSmall {
-                                needed: aligned + 2,
-                                available: buffer.len(),
-                            })?;
-                        u16::from_le_bytes(bytes) as u32
-                    }
-                    FlagsRepr::U32(_) => {
-                        let aligned = align_to(offset, 4);
-                        let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
-                            .try_into()
-                            .map_err(|_| CanonicalAbiError::BufferTooSmall {
-                                needed: aligned + 4,
-                                available: buffer.len(),
-                            })?;
-                        u32::from_le_bytes(bytes)
-                    }
-                };
+                let flags_value =
+                    match f.repr() {
+                        FlagsRepr::U8 => read_byte(buffer, offset)? as u32,
+                        FlagsRepr::U16 => {
+                            let aligned = align_to(offset, 2);
+                            let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
+                                .try_into()
+                                .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                                    needed: aligned + 2,
+                                    available: buffer.len(),
+                                })?;
+                            u16::from_le_bytes(bytes) as u32
+                        }
+                        FlagsRepr::U32(_) => {
+                            let aligned = align_to(offset, 4);
+                            let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
+                                .try_into()
+                                .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                                    needed: aligned + 4,
+                                    available: buffer.len(),
+                                })?;
+                            u32::from_le_bytes(bytes)
+                        }
+                    };
 
                 let active_flags: Vec<&str> = flag_names
                     .iter()
@@ -330,29 +339,29 @@ impl CanonicalAbi<'_> {
             }
             TypeDefKind::Enum(e) => {
                 let discriminant = self.read_discriminant(buffer, offset, e.tag())?;
-                let case = e
-                    .cases
-                    .get(discriminant as usize)
-                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                let case = e.cases.get(discriminant as usize).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant,
                         num_cases: e.cases.len(),
-                    })?;
+                    },
+                )?;
                 let case_name = &case.name;
 
-                Value::make_enum(wave_ty, case_name).map_err(|e| CanonicalAbiError::TypeMismatch {
-                    expected: "enum".to_string(),
-                    got: e.to_string(),
+                Value::make_enum(wave_ty, case_name).map_err(|e| {
+                    CanonicalAbiError::TypeMismatch {
+                        expected: "enum".to_string(),
+                        got: e.to_string(),
+                    }
                 })?
             }
             TypeDefKind::Variant(v) => {
                 let discriminant = self.read_discriminant(buffer, offset, v.tag())?;
-                let case = v
-                    .cases
-                    .get(discriminant as usize)
-                    .ok_or(CanonicalAbiError::InvalidDiscriminant {
+                let case = v.cases.get(discriminant as usize).ok_or(
+                    CanonicalAbiError::InvalidDiscriminant {
                         discriminant,
                         num_cases: v.cases.len(),
-                    })?;
+                    },
+                )?;
                 let payload_offset = self
                     .sizes
                     .payload_offset(v.tag(), v.cases.iter().map(|c| c.ty.as_ref()));
@@ -407,13 +416,15 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::InvalidDiscriminant {
                             discriminant: discriminant as u32,
                             num_cases: 2,
-                        })
+                        });
                     }
                 };
 
-                Value::make_option(wave_ty, opt_val).map_err(|e| CanonicalAbiError::TypeMismatch {
-                    expected: "option".to_string(),
-                    got: e.to_string(),
+                Value::make_option(wave_ty, opt_val).map_err(|e| {
+                    CanonicalAbiError::TypeMismatch {
+                        expected: "option".to_string(),
+                        got: e.to_string(),
+                    }
                 })?
             }
             TypeDefKind::Result(r) => {
@@ -465,7 +476,7 @@ impl CanonicalAbi<'_> {
                         return Err(CanonicalAbiError::InvalidDiscriminant {
                             discriminant: discriminant as u32,
                             num_cases: 2,
-                        })
+                        });
                     }
                 };
 
@@ -566,9 +577,11 @@ impl CanonicalAbi<'_> {
                     elements.push(elem_val);
                 }
 
-                Value::make_list(wave_ty, elements).map_err(|e| CanonicalAbiError::TypeMismatch {
-                    expected: "list".to_string(),
-                    got: e.to_string(),
+                Value::make_list(wave_ty, elements).map_err(|e| {
+                    CanonicalAbiError::TypeMismatch {
+                        expected: "list".to_string(),
+                        got: e.to_string(),
+                    }
                 })?
             }
             TypeDefKind::Map(_, _) => {
@@ -592,32 +605,32 @@ impl CanonicalAbi<'_> {
             Int::U8 => Ok(read_byte(buffer, offset)? as u32),
             Int::U16 => {
                 let aligned = align_to(offset, 2);
-                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 2] = read_slice(buffer, aligned, 2)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 2,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Ok(u16::from_le_bytes(bytes) as u32)
             }
             Int::U32 => {
                 let aligned = align_to(offset, 4);
-                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 4] = read_slice(buffer, aligned, 4)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 4,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Ok(u32::from_le_bytes(bytes))
             }
             Int::U64 => {
                 let aligned = align_to(offset, 8);
-                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?
-                    .try_into()
-                    .map_err(|_| CanonicalAbiError::BufferTooSmall {
+                let bytes: [u8; 8] = read_slice(buffer, aligned, 8)?.try_into().map_err(|_| {
+                    CanonicalAbiError::BufferTooSmall {
                         needed: aligned + 8,
                         available: buffer.len(),
-                    })?;
+                    }
+                })?;
                 Ok(u64::from_le_bytes(bytes) as u32)
             }
         }

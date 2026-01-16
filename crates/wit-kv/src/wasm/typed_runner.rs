@@ -180,12 +180,12 @@ impl TypedRunnerBuilder {
             (None, None) => {
                 return Err(WasmError::TypeMismatch {
                     keyspace_type: "component path or bytes is required".to_string(),
-                })
+                });
             }
             (Some(_), Some(_)) => {
                 return Err(WasmError::TypeMismatch {
                     keyspace_type: "provide either component path or bytes, not both".to_string(),
-                })
+                });
             }
         };
 
@@ -201,18 +201,20 @@ impl TypedRunnerBuilder {
             (None, None) => {
                 return Err(WasmError::TypeMismatch {
                     keyspace_type: "WIT path or text is required".to_string(),
-                })
+                });
             }
             (Some(_), Some(_)) => {
                 return Err(WasmError::TypeMismatch {
                     keyspace_type: "provide either WIT path or text, not both".to_string(),
-                })
+                });
             }
         };
 
-        let input_type_name = self.input_type_name.ok_or_else(|| WasmError::TypeMismatch {
-            keyspace_type: "input type name is required".to_string(),
-        })?;
+        let input_type_name = self
+            .input_type_name
+            .ok_or_else(|| WasmError::TypeMismatch {
+                keyspace_type: "input type name is required".to_string(),
+            })?;
 
         let output_type_name = self.output_type_name;
 
@@ -421,18 +423,20 @@ impl TypedRunner {
 
     /// Get the input type wave representation.
     pub fn input_wave_type(&self) -> Result<wasm_wave::value::Type, WasmError> {
-        crate::resolve_wit_type(&self.resolve, self.input_type_id)
-            .map_err(|e| WasmError::TypeMismatch {
+        crate::resolve_wit_type(&self.resolve, self.input_type_id).map_err(|e| {
+            WasmError::TypeMismatch {
                 keyspace_type: format!("failed to resolve input type: {}", e),
-            })
+            }
+        })
     }
 
     /// Get the output type wave representation.
     pub fn output_wave_type(&self) -> Result<wasm_wave::value::Type, WasmError> {
-        crate::resolve_wit_type(&self.resolve, self.output_type_id)
-            .map_err(|e| WasmError::TypeMismatch {
+        crate::resolve_wit_type(&self.resolve, self.output_type_id).map_err(|e| {
+            WasmError::TypeMismatch {
                 keyspace_type: format!("failed to resolve output type: {}", e),
-            })
+            }
+        })
     }
 
     /// Convert a StoredValue (output type) to a WAVE-encoded string.
@@ -484,14 +488,15 @@ impl TypedRunner {
 
     /// Convert a typed Val result back to StoredValue.
     /// Uses direct Val -> binary conversion (hot path, bypasses wasm_wave::Value).
-    pub fn val_to_stored(&self, val: &Val, type_version: SemanticVersion) -> Result<StoredValue, WasmError> {
+    pub fn val_to_stored(
+        &self,
+        val: &Val,
+        type_version: SemanticVersion,
+    ) -> Result<StoredValue, WasmError> {
         let mut memory = LinearMemory::new();
         let abi = CanonicalAbi::new(&self.resolve);
-        let buffer = abi.lower_from_val(
-            val,
-            &wit_parser::Type::Id(self.output_type_id),
-            &mut memory,
-        )?;
+        let buffer =
+            abi.lower_from_val(val, &wit_parser::Type::Id(self.output_type_id), &mut memory)?;
 
         Ok(StoredValue::new(
             type_version,
@@ -520,11 +525,13 @@ impl TypedRunner {
 
         // Get function type to determine parameter type
         let func_type = func.ty(&self.store);
-        let (_, param_type) = func_type.params().next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "filter function should have 1 parameter".to_string(),
-            }
-        })?;
+        let (_, param_type) =
+            func_type
+                .params()
+                .next()
+                .ok_or_else(|| WasmError::InvalidReturnType {
+                    expected: "filter function should have 1 parameter".to_string(),
+                })?;
 
         // Convert stored value to wasmtime Val
         trace!("converting stored value to Val");
@@ -538,11 +545,10 @@ impl TypedRunner {
                 WasmError::Trap(e.to_string())
             })?;
 
-        func.post_return(&mut self.store)
-            .map_err(|e| {
-                error!(error = %e, "filter post_return failed");
-                WasmError::Trap(format!("post_return failed: {}", e))
-            })?;
+        func.post_return(&mut self.store).map_err(|e| {
+            error!(error = %e, "filter post_return failed");
+            WasmError::Trap(format!("post_return failed: {}", e))
+        })?;
 
         match results.first() {
             Some(Val::Bool(b)) => {
@@ -577,17 +583,21 @@ impl TypedRunner {
 
         // Get function type
         let func_type = func.ty(&self.store);
-        let (_, param_type) = func_type.params().next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "transform function should have 1 parameter".to_string(),
-            }
-        })?;
+        let (_, param_type) =
+            func_type
+                .params()
+                .next()
+                .ok_or_else(|| WasmError::InvalidReturnType {
+                    expected: "transform function should have 1 parameter".to_string(),
+                })?;
 
-        let result_type = func_type.results().next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "transform function should have 1 result".to_string(),
-            }
-        })?;
+        let result_type =
+            func_type
+                .results()
+                .next()
+                .ok_or_else(|| WasmError::InvalidReturnType {
+                    expected: "transform function should have 1 result".to_string(),
+                })?;
 
         // Convert input
         trace!("converting stored value to Val");
@@ -613,11 +623,10 @@ impl TypedRunner {
         trace!("converting result Val to StoredValue");
         let output = self.val_to_stored(result_val, type_version)?;
 
-        func.post_return(&mut self.store)
-            .map_err(|e| {
-                error!(error = %e, "transform post_return failed");
-                WasmError::Trap(format!("post_return failed: {}", e))
-            })?;
+        func.post_return(&mut self.store).map_err(|e| {
+            error!(error = %e, "transform post_return failed");
+            WasmError::Trap(format!("post_return failed: {}", e))
+        })?;
 
         debug!("transform function completed");
         Ok(output)
@@ -631,27 +640,31 @@ impl TypedRunner {
     /// Call the `init-state` function to get the initial reduce state.
     ///
     /// The init-state function should have signature: `init-state() -> StateType`
-    pub fn call_init_state(&mut self, type_version: SemanticVersion) -> Result<StoredValue, WasmError> {
+    pub fn call_init_state(
+        &mut self,
+        type_version: SemanticVersion,
+    ) -> Result<StoredValue, WasmError> {
         debug!("calling init-state function");
         let func = self.get_func("init-state")?;
 
         // Get function type
         let func_type = func.ty(&self.store);
-        let result_type = func_type.results().next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "init-state function should have 1 result".to_string(),
-            }
-        })?;
+        let result_type =
+            func_type
+                .results()
+                .next()
+                .ok_or_else(|| WasmError::InvalidReturnType {
+                    expected: "init-state function should have 1 result".to_string(),
+                })?;
 
         // Create result placeholder
         let mut results = vec![create_placeholder_val(&result_type)?];
 
         // Call function (no parameters)
-        func.call(&mut self.store, &[], &mut results)
-            .map_err(|e| {
-                error!(error = %e, "init-state function trap");
-                WasmError::Trap(e.to_string())
-            })?;
+        func.call(&mut self.store, &[], &mut results).map_err(|e| {
+            error!(error = %e, "init-state function trap");
+            WasmError::Trap(e.to_string())
+        })?;
 
         // Convert result to StoredValue using output_type (which is the state type)
         let result_val = results.first().ok_or_else(|| {
@@ -663,11 +676,10 @@ impl TypedRunner {
         trace!("converting result Val to StoredValue");
         let output = self.val_to_stored(result_val, type_version)?;
 
-        func.post_return(&mut self.store)
-            .map_err(|e| {
-                error!(error = %e, "init-state post_return failed");
-                WasmError::Trap(format!("post_return failed: {}", e))
-            })?;
+        func.post_return(&mut self.store).map_err(|e| {
+            error!(error = %e, "init-state post_return failed");
+            WasmError::Trap(format!("post_return failed: {}", e))
+        })?;
 
         debug!("init-state function completed");
         Ok(output)
@@ -711,23 +723,21 @@ impl TypedRunner {
         let func_type = func.ty(&self.store);
         let mut params = func_type.params();
 
-        let (_, state_param_type) = params.next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "reduce function should have 2 parameters (state, value)".to_string(),
-            }
+        let (_, state_param_type) = params.next().ok_or_else(|| WasmError::InvalidReturnType {
+            expected: "reduce function should have 2 parameters (state, value)".to_string(),
         })?;
 
-        let (_, value_param_type) = params.next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "reduce function should have 2 parameters (state, value)".to_string(),
-            }
+        let (_, value_param_type) = params.next().ok_or_else(|| WasmError::InvalidReturnType {
+            expected: "reduce function should have 2 parameters (state, value)".to_string(),
         })?;
 
-        let result_type = func_type.results().next().ok_or_else(|| {
-            WasmError::InvalidReturnType {
-                expected: "reduce function should have 1 result".to_string(),
-            }
-        })?;
+        let result_type =
+            func_type
+                .results()
+                .next()
+                .ok_or_else(|| WasmError::InvalidReturnType {
+                    expected: "reduce function should have 1 result".to_string(),
+                })?;
 
         // Convert state and value to wasmtime Vals
         trace!("converting state and value to Vals");
@@ -754,11 +764,10 @@ impl TypedRunner {
         trace!("converting result Val to StoredValue");
         let output = self.val_to_stored(result_val, type_version)?;
 
-        func.post_return(&mut self.store)
-            .map_err(|e| {
-                error!(error = %e, "reduce post_return failed");
-                WasmError::Trap(format!("post_return failed: {}", e))
-            })?;
+        func.post_return(&mut self.store).map_err(|e| {
+            error!(error = %e, "reduce post_return failed");
+            WasmError::Trap(format!("post_return failed: {}", e))
+        })?;
 
         debug!("reduce function completed");
         Ok(output)

@@ -12,5 +12,5 @@ mod typed_runner;
 
 pub use error::WasmError;
 pub use typed_runner::{
-    create_placeholder_val, val_to_wave, wave_to_val, TypedRunner, TypedRunnerBuilder,
+    TypedRunner, TypedRunnerBuilder, create_placeholder_val, val_to_wave, wave_to_val,
 };
