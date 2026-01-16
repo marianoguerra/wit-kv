@@ -344,28 +344,14 @@ let (decoded, _) = abi.lift_with_memory(&bytes, &wit_type, &wave_type, &memory)?
 
 ```
 wit-kv/
-├── src/
-│   ├── lib.rs              # Library exports
-│   ├── main.rs             # CLI entry point
-│   ├── abi/                # Canonical ABI implementation
-│   │   ├── mod.rs          # CanonicalAbi, EncodedValue
-│   │   ├── memory.rs       # LinearMemory allocator
-│   │   ├── wave_lower.rs   # WAVE → binary
-│   │   └── wave_lift.rs    # Binary → WAVE
-│   ├── kv/                 # Key-value store
-│   │   ├── store.rs        # KvStore implementation
-│   │   ├── types.rs        # StoredValue, KeyspaceMetadata
-│   │   └── format.rs       # WIT-based binary encoding
-│   ├── wasm/               # WebAssembly execution
-│   │   └── typed_runner.rs # TypedRunner for map/reduce
-│   ├── server/             # HTTP API server
-│   │   ├── config.rs       # TOML configuration
-│   │   ├── routes/         # API handlers
-│   │   └── content.rs      # Content negotiation
-│   └── bin/
-│       └── wit-kv-server.rs
+├── Cargo.toml              # Workspace manifest
+├── crates/
+│   ├── wit-kv-abi/         # Canonical ABI encoding/decoding
+│   ├── wit-kv/             # Core library (KV store + WASM)
+│   ├── wit-kv-cli/         # CLI binary
+│   └── wit-kv-server/      # HTTP server binary
 ├── client/                 # TypeScript client
-├── examples/               # Map/reduce component examples
+├── examples/               # Map/reduce examples
 └── kv.wit                  # Storage format types
 ```
 
