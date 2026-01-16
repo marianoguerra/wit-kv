@@ -1,0 +1,20 @@
+[package]
+name = "wit-kv-abi"
+version.workspace = true
+edition.workspace = true
+description = "Canonical ABI encoding/decoding for WIT values"
+keywords = ["wasm", "wit", "component-model", "canonical-abi"]
+categories = ["wasm", "encoding"]
+
+[features]
+# Enable direct wasmtime::component::Val conversion (requires wasmtime)
+val = ["dep:wasmtime"]
+
+[dependencies]
+thiserror.workspace = true
+wit-parser.workspace = true
+wasm-wave.workspace = true
+wasmtime = { workspace = true, optional = true }
+
+[lints]
+workspace = true

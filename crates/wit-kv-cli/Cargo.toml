@@ -1,0 +1,23 @@
+[package]
+name = "wit-kv-cli"
+version.workspace = true
+edition.workspace = true
+description = "Command-line interface for wit-kv typed key-value store"
+keywords = ["wasm", "wit", "component-model", "key-value", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "wit-kv"
+path = "src/main.rs"
+
+[dependencies]
+wit-kv = { workspace = true, features = ["kv", "wasm"] }
+wit-kv-abi.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+wasm-wave.workspace = true
+thiserror.workspace = true
+wit-parser.workspace = true
+
+[lints]
+workspace = true

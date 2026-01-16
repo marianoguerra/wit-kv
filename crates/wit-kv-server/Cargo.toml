@@ -1,0 +1,33 @@
+[package]
+name = "wit-kv-server"
+version.workspace = true
+edition.workspace = true
+description = "HTTP server for wit-kv typed key-value store"
+keywords = ["wasm", "wit", "component-model", "key-value", "server"]
+categories = ["web-programming::http-server"]
+
+[[bin]]
+name = "wit-kv-server"
+path = "src/main.rs"
+
+[dependencies]
+wit-kv = { workspace = true, features = ["kv", "wasm", "logging"] }
+wit-kv-abi.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+wasm-wave.workspace = true
+thiserror.workspace = true
+wit-parser.workspace = true
+
+[lints]
+workspace = true

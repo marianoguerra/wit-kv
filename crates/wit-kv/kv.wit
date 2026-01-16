@@ -1,0 +1,176 @@
+package wit-kv:storage@0.2.0;
+
+interface types {
+    /// Semantic version following WIT package versioning convention
+    record semantic-version {
+        major: u32,
+        minor: u32,
+        patch: u32,
+    }
+
+    /// Stored value envelope - wraps the actual value with metadata
+    record stored-value {
+        /// Format version for future compatibility
+        version: u8,
+
+        /// Type version at time of storage (semantic version)
+        type-version: semantic-version,
+
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+
+        /// Linear memory bytes (for variable-length types: strings, lists)
+        memory: option<list<u8>>,
+    }
+
+    /// Binary export format - self-describing canonical ABI encoding
+    /// for transferring complete values including linear memory
+    record binary-export {
+        /// Canonical ABI encoded value bytes
+        value: list<u8>,
+        /// Linear memory bytes (for variable-length types)
+        memory: option<list<u8>>,
+    }
+
+    /// Keyspace type metadata
+    record keyspace-metadata {
+        /// User-visible keyspace name
+        name: string,
+
+        /// Full WIT qualified name (namespace:package/interface#type)
+        qualified-name: string,
+
+        /// Full WIT type definition text
+        wit-definition: string,
+
+        /// Type name within the WIT definition
+        type-name: string,
+
+        /// Semantic version for the type schema
+        type-version: semantic-version,
+
+        /// CRC32 hash of WIT definition
+        type-hash: u32,
+
+        /// Unix timestamp of creation
+        created-at: u64,
+    }
+
+    /// List of keys in a keyspace
+    record key-list {
+        /// The keys in the keyspace
+        keys: list<string>,
+    }
+
+    /// List of keyspaces (type registrations) in a database
+    record keyspace-list {
+        /// The keyspaces with their metadata
+        keyspaces: list<keyspace-metadata>,
+    }
+
+    /// Database information
+    record database-info {
+        /// Database name
+        name: string,
+    }
+
+    /// List of databases
+    record database-list {
+        /// The databases
+        databases: list<database-info>,
+    }
+
+    // =========================================================================
+    // Map/Reduce API Types
+    // =========================================================================
+
+    /// Key filtering options for map/reduce operations
+    record key-filter {
+        /// Single key to process (if set, other filters are ignored)
+        key: option<string>,
+        /// Prefix filter for keys
+        prefix: option<string>,
+        /// Start key (inclusive)
+        start: option<string>,
+        /// End key (exclusive)
+        end: option<string>,
+        /// Maximum number of keys to process
+        limit: option<u32>,
+    }
+
+    /// Map request configuration (sent as JSON in multipart request)
+    record map-request {
+        /// WIT definition text for the module's types
+        wit-definition: string,
+        /// Name of the input type in the WIT definition
+        input-type: string,
+        /// Name of the output type (defaults to input-type if not specified)
+        output-type: option<string>,
+        /// Optional key filters
+        filter: option<key-filter>,
+    }
+
+    /// Reduce request configuration (sent as JSON in multipart request)
+    record reduce-request {
+        /// WIT definition text for the module's types
+        wit-definition: string,
+        /// Name of the input/value type in the WIT definition
+        input-type: string,
+        /// Name of the state type in the WIT definition
+        state-type: string,
+        /// Optional key filters
+        filter: option<key-filter>,
+    }
+
+    /// Result of a map operation
+    record map-result {
+        /// Number of keys processed
+        processed: u32,
+        /// Number of keys that passed the filter and were transformed
+        transformed: u32,
+        /// Number of keys filtered out
+        filtered: u32,
+        /// Errors encountered: list of (key, error message)
+        errors: list<tuple<string, string>>,
+        /// Transformed results: list of (key, wave-encoded value)
+        results: list<tuple<string, string>>,
+    }
+
+    /// Result of a reduce operation
+    record reduce-result {
+        /// Number of values processed
+        processed: u32,
+        /// Number of errors encountered
+        error-count: u32,
+        /// Errors encountered: list of (key, error message)
+        errors: list<tuple<string, string>>,
+        /// Final state as wave-encoded value
+        state: string,
+    }
+
+    /// Module kind for registered modules (future)
+    enum module-kind {
+        /// Map operation module (filter + transform)
+        mapper,
+        /// Reduce operation module (init-state + reduce)
+        reducer,
+    }
+
+    /// Module registration for future reference by ID
+    record module-registration {
+        /// Unique identifier for the module
+        id: string,
+        /// Human-readable name
+        name: string,
+        /// WIT definition text
+        wit-definition: string,
+        /// Input type name
+        input-type: string,
+        /// Output/state type name
+        output-type: string,
+        /// Module kind (map or reduce)
+        kind: module-kind,
+        /// Unix timestamp of creation
+        created-at: u64,
+    }
+}

@@ -1,74 +1,49 @@
-[package]
-name = "wit-kv"
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 description = "A typed key-value store for WIT values using canonical ABI encoding"
 keywords = ["wasm", "wit", "component-model", "key-value", "canonical-abi"]
 categories = ["wasm", "encoding", "database"]
 
-[features]
-default = ["kv", "wasm"]
-# Enable the key-value store module (requires fjall)
-kv = ["dep:fjall", "dep:crc32fast"]
-# Enable WebAssembly component execution (requires wasmtime)
-wasm = ["dep:wasmtime", "dep:wit-component"]
-# Enable the CLI binary
-cli = ["dep:clap"]
-# Enable library-level tracing (consumers provide their own subscriber)
-logging = ["dep:tracing"]
-# Enable all features
-full = ["kv", "wasm", "cli", "server", "logging"]
-# Enable the HTTP API server
-server = ["kv", "wasm", "logging", "dep:clap", "dep:axum", "dep:axum-extra", "dep:tokio", "dep:toml", "dep:tower-http", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:tracing-subscriber"]
+[workspace.dependencies]
+# Internal crates
+wit-kv-abi = { path = "crates/wit-kv-abi" }
+wit-kv = { path = "crates/wit-kv" }
 
-[dependencies]
 # Core dependencies (always needed)
 anyhow = "1"
 thiserror = "2"
 wit-parser = "0.244"
 wasm-wave = { version = "0.244", features = ["wit"] }
 
-# Optional: CLI support
-clap = { version = "4", features = ["derive", "env"], optional = true }
+# CLI support
+clap = { version = "4", features = ["derive", "env"] }
 
-# Optional: KV store support
-fjall = { version = "3.0.1", optional = true }
-crc32fast = { version = "1", optional = true }
+# KV store support
+fjall = "3.0.1"
+crc32fast = "1"
 
-# Optional: WASM execution support
-wasmtime = { version = "40.0.2", features = ["component-model"], optional = true }
-wit-component = { version = "0.244.0", features = ["dummy-module"], optional = true }
+# WASM execution support
+wasmtime = { version = "40.0.2", features = ["component-model"] }
+wit-component = { version = "0.244.0", features = ["dummy-module"] }
 
-axum = { version = "0.8", features = ["multipart"], optional = true }
-axum-extra = { version = "0.12", features = ["typed-header"], optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
-toml = { version = "0.9", optional = true }
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"], optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
-tempfile = { version = "3.24.0", optional = true }
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"], optional = true }
-tracing = { version = "0.1.44", optional = true }
-
-[dev-dependencies]
-proptest = "1"
-axum-test = "18"
-tempfile = "3"
-anyhow = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# Server dependencies
+axum = { version = "0.8", features = ["multipart"] }
+axum-extra = { version = "0.12", features = ["typed-header"] }
+tokio = { version = "1", features = ["full"] }
+toml = "0.9"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-urlencoding = "2"
+tempfile = "3.24.0"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+tracing = "0.1.44"
 
-[[bin]]
-name = "wit-kv"
-required-features = ["cli", "kv", "wasm"]
-
-[[bin]]
-name = "wit-kv-server"
-path = "src/bin/wit-kv-server.rs"
-required-features = ["server"]
-
-[lints.clippy]
+[workspace.lints.clippy]
 # Disallow functions and macros that can panic
 unwrap_used = "deny"
 expect_used = "deny"
