@@ -1,0 +1,14 @@
+package example:shapes;
+
+interface types {
+    record point {
+        x: s32,
+        y: s32,
+    }
+
+    variant shape {
+        circle(u32),
+        rectangle(point),
+        empty,
+    }
+}

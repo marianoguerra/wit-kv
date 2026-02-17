@@ -1,0 +1,21 @@
+[package]
+name = "wit-fs"
+version.workspace = true
+edition.workspace = true
+description = "FUSE filesystem for WIT-typed files with WAVE text and canonical ABI binary views"
+keywords = ["wasm", "wit", "fuse", "filesystem", "canonical-abi"]
+categories = ["command-line-utilities", "filesystem"]
+
+[[bin]]
+name = "wit-fs"
+path = "src/main.rs"
+
+[dependencies]
+wit-core.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+fuser = { version = "0.17", features = ["macfuse-4-compat"] }
+libc = "0.2"
+
+[lints]
+workspace = true

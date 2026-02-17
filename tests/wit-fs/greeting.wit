@@ -1,0 +1,8 @@
+package example:greetings;
+
+interface types {
+    record greeting {
+        message: string,
+        count: u32,
+    }
+}

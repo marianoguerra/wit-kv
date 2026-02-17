@@ -16,6 +16,10 @@ build-cli:
 build-wit-file:
     cargo build --release -p wit-file
 
+# Build only the wit-fs binary
+build-wit-fs:
+    cargo build --release -p wit-fs
+
 # Build only the server binary
 build-server:
     cargo build --release -p wit-kv-server
@@ -163,6 +167,10 @@ test-errors: build
 # Run wit-file smoke tests (roundtrip all WIT types)
 smoke-test-wit-file: build
     ./scripts/smoke-test-wit-file.sh release
+
+# Run wit-fs smoke tests (mount, write, read, validate, error handling)
+smoke-test-wit-fs: build
+    ./scripts/smoke-test-wit-fs.sh release
 
 # Run all smoke tests (usage example + map/reduce examples + unit tests)
 smoke-test: build build-examples
