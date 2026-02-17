@@ -1,4 +1,4 @@
-use wit_core::{CanonicalAbi, LinearMemory, Type, wave_from_str, wave_to_string};
+use wit_core::{CanonicalAbi, LinearMemory, Type, wave_from_str};
 
 use crate::error::{ErrorKind, ValidationError};
 use crate::schema::ParsedSchema;
@@ -11,16 +11,16 @@ pub fn validate_wave(
     let wave_text = wave_text.trim();
 
     // Parse WAVE text
-    let value = wave_from_str(&schema.wave_type, wave_text).map_err(|e| {
+    let value = wave_from_str(&schema.resolved.wave_type, wave_text).map_err(|e| {
         ValidationError::new(e.to_string(), wave_text.to_string(), ErrorKind::WaveParse)
     })?;
 
     // Encode to canonical ABI binary
-    let abi = CanonicalAbi::new(&schema.resolve);
-    let ty = Type::Id(schema.type_id);
+    let abi = CanonicalAbi::new(&schema.resolved.resolve);
+    let ty = Type::Id(schema.resolved.type_id);
     let mut memory = LinearMemory::new();
     let buffer = abi
-        .lower_with_memory(&value, &ty, &schema.wave_type, &mut memory)
+        .lower_with_memory(&value, &ty, &schema.resolved.wave_type, &mut memory)
         .map_err(|e| {
             ValidationError::new(e.to_string(), wave_text.to_string(), ErrorKind::AbiError)
         })?;
@@ -40,8 +40,8 @@ pub fn validate_binary(
     binary: &[u8],
     schema: &ParsedSchema,
 ) -> Result<Vec<u8>, ValidationError> {
-    let abi = CanonicalAbi::new(&schema.resolve);
-    let ty = Type::Id(schema.type_id);
+    let abi = CanonicalAbi::new(&schema.resolved.resolve);
+    let ty = Type::Id(schema.resolved.type_id);
     let flat_size = abi.flat_size(&ty);
 
     if binary.len() < flat_size {
@@ -66,7 +66,7 @@ pub fn validate_binary(
 
     // Try to lift the value to verify it's valid
     let _value = abi
-        .lift_with_memory(buffer, &ty, &schema.wave_type, &memory)
+        .lift_with_memory(buffer, &ty, &schema.resolved.wave_type, &memory)
         .map_err(|e| {
             ValidationError::new(
                 e.to_string(),
@@ -76,52 +76,4 @@ pub fn validate_binary(
         })?;
 
     Ok(binary.to_vec())
-}
-
-/// Decode binary data to WAVE text.
-pub fn binary_to_wave(binary: &[u8], schema: &ParsedSchema) -> Result<String, String> {
-    let abi = CanonicalAbi::new(&schema.resolve);
-    let ty = Type::Id(schema.type_id);
-    let flat_size = abi.flat_size(&ty);
-
-    if binary.len() < flat_size {
-        return Err(format!(
-            "Binary data is {} bytes but type requires at least {} bytes",
-            binary.len(),
-            flat_size
-        ));
-    }
-
-    let (buffer, memory_bytes) = binary.split_at(flat_size);
-    let memory = if memory_bytes.is_empty() {
-        LinearMemory::new()
-    } else {
-        LinearMemory::from_bytes(memory_bytes.to_vec())
-    };
-
-    let (value, _) = abi
-        .lift_with_memory(buffer, &ty, &schema.wave_type, &memory)
-        .map_err(|e| e.to_string())?;
-
-    wave_to_string(&value).map_err(|e| e.to_string())
-}
-
-/// Encode WAVE text to canonical ABI binary (without validation error wrapping).
-pub fn wave_to_binary(wave_text: &str, schema: &ParsedSchema) -> Result<Vec<u8>, String> {
-    let wave_text = wave_text.trim();
-    let value = wave_from_str(&schema.wave_type, wave_text).map_err(|e| e.to_string())?;
-
-    let abi = CanonicalAbi::new(&schema.resolve);
-    let ty = Type::Id(schema.type_id);
-    let mut memory = LinearMemory::new();
-    let buffer = abi
-        .lower_with_memory(&value, &ty, &schema.wave_type, &mut memory)
-        .map_err(|e| e.to_string())?;
-
-    let memory_bytes = memory.into_bytes();
-    let mut result = buffer;
-    if !memory_bytes.is_empty() {
-        result.extend_from_slice(&memory_bytes);
-    }
-    Ok(result)
 }

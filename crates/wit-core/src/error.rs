@@ -21,6 +21,10 @@ pub enum Error {
     /// WAVE parsing error.
     #[error("WAVE parsing error: {0}")]
     WaveParse(String),
+
+    /// Binary data is too small for the type.
+    #[error("Binary data is {actual} bytes but type requires at least {expected} bytes")]
+    DataTooSmall { expected: usize, actual: usize },
 }
 
 /// A [`Result`] type alias using the [`Error`] type.

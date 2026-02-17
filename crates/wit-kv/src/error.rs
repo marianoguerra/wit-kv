@@ -96,6 +96,11 @@ impl From<wit_core::Error> for Error {
             wit_core::Error::Io(e) => Self::Io(e),
             wit_core::Error::WitParse(e) => Self::WitParse(e),
             wit_core::Error::WaveParse(s) => Self::WaveParse(s),
+            wit_core::Error::DataTooSmall { expected, actual } => {
+                Self::WaveParse(format!(
+                    "Binary data is {actual} bytes but type requires at least {expected} bytes"
+                ))
+            }
         }
     }
 }

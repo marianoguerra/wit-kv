@@ -95,24 +95,11 @@ impl ValidationError {
 
     /// Encode this error as canonical ABI binary (for `.witerrb` files).
     pub fn to_binary(&self) -> Option<Vec<u8>> {
-        use wit_core::{
-            CanonicalAbi, LinearMemory, load_wit_type_from_string, wave_from_str,
-        };
-
-        let (resolve, _type_id, wave_type) =
-            load_wit_type_from_string(VALIDATION_ERROR_WIT, Some("validation-error")).ok()?;
+        let resolved =
+            wit_core::load_wit_type_from_string(VALIDATION_ERROR_WIT, Some("validation-error"))
+                .ok()?;
         let wave_text = self.to_wave_string();
-        let value = wave_from_str(&wave_type, &wave_text).ok()?;
-        let abi = CanonicalAbi::new(&resolve);
-        let ty = wit_core::Type::Id(_type_id);
-        let mut memory = LinearMemory::new();
-        let buffer = abi.lower_with_memory(&value, &ty, &wave_type, &mut memory).ok()?;
-        let memory_bytes = memory.into_bytes();
-        let mut result = buffer;
-        if !memory_bytes.is_empty() {
-            result.extend_from_slice(&memory_bytes);
-        }
-        Some(result)
+        wit_core::wave_to_binary(&wave_text, &resolved).ok()
     }
 }
 

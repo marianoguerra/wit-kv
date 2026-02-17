@@ -1,12 +1,12 @@
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use thiserror::Error;
 
 use wit_core::{
-    CanonicalAbi, CanonicalAbiError, LinearMemory, Type, Value,
-    load_wit_type_from_path, resolve_wit_type, wave_from_str, wave_to_string,
+    CanonicalAbiError, Value,
+    binary_to_wave, load_wit_type_from_path, wave_from_str, wave_to_binary, wave_to_string,
 };
 
 /// CLI-specific errors.
@@ -31,10 +31,6 @@ pub enum AppError {
     /// Missing value input
     #[error("Either --value, --file, or stdin must provide the WAVE text")]
     MissingValueInput,
-
-    /// File too small for type
-    #[error("File is {actual} bytes but type requires at least {expected} bytes (flat buffer size)")]
-    FileTooSmall { expected: usize, actual: usize },
 
     /// Schema not found
     #[error("No .type.wit found in {0} (use --wit to specify explicitly)")]
@@ -193,19 +189,14 @@ fn cmd_read(
     file: &Path,
     output: Option<&Path>,
 ) -> Result<(), AppError> {
-    let (resolve, type_id) = load_wit_type_from_path(wit_path, type_name)?;
-    let wave_type =
-        resolve_wit_type(&resolve, type_id).map_err(|e| AppError::WaveParse(e.to_string()))?;
-
-    let abi = CanonicalAbi::new(&resolve);
-    let ty = Type::Id(type_id);
+    let resolved = load_wit_type_from_path(wit_path, type_name)?;
 
     // If input is a .wave file, parse as WAVE text, re-validate, re-format
     if is_wave_file(file) {
         let wave_text = std::fs::read_to_string(file)?;
         let wave_text = wave_text.trim();
         let parsed_value: Value =
-            wave_from_str(&wave_type, wave_text).map_err(|e| AppError::WaveParse(e.to_string()))?;
+            wave_from_str(&resolved.wave_type, wave_text).map_err(|e| AppError::WaveParse(e.to_string()))?;
         let wave_str =
             wave_to_string(&parsed_value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
         write_output(output, &wave_str)?;
@@ -213,26 +204,8 @@ fn cmd_read(
     }
 
     // Binary file
-    let flat_size = abi.flat_size(&ty);
     let data = std::fs::read(file)?;
-
-    if data.len() < flat_size {
-        return Err(AppError::FileTooSmall {
-            expected: flat_size,
-            actual: data.len(),
-        });
-    }
-
-    // Split into buffer (flat_size bytes) and memory (remaining)
-    let (buffer, memory_bytes) = data.split_at(flat_size);
-    let memory = if memory_bytes.is_empty() {
-        LinearMemory::new()
-    } else {
-        LinearMemory::from_bytes(memory_bytes.to_vec())
-    };
-
-    let (value, _) = abi.lift_with_memory(buffer, &ty, &wave_type, &memory)?;
-    let wave_str = wave_to_string(&value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
+    let wave_str = binary_to_wave(&data, &resolved)?;
     write_output(output, &wave_str)?;
 
     Ok(())
@@ -245,9 +218,7 @@ fn cmd_write(
     value: Option<String>,
     file: Option<PathBuf>,
 ) -> Result<(), AppError> {
-    let (resolve, type_id) = load_wit_type_from_path(wit_path, type_name)?;
-    let wave_type =
-        resolve_wit_type(&resolve, type_id).map_err(|e| AppError::WaveParse(e.to_string()))?;
+    let resolved = load_wit_type_from_path(wit_path, type_name)?;
 
     // Read WAVE text from --value, --file, or stdin
     let wave_text = if let Some(v) = value {
@@ -265,11 +236,10 @@ fn cmd_write(
         return Err(AppError::MissingValueInput);
     }
 
-    let parsed_value =
-        wave_from_str(&wave_type, wave_text).map_err(|e| AppError::WaveParse(e.to_string()))?;
-
     // If output is a .wave file, write normalized WAVE text instead of binary
     if is_wave_file(output) {
+        let parsed_value: Value =
+            wave_from_str(&resolved.wave_type, wave_text).map_err(|e| AppError::WaveParse(e.to_string()))?;
         let wave_str =
             wave_to_string(&parsed_value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
         std::fs::write(output, &wave_str)?;
@@ -277,19 +247,8 @@ fn cmd_write(
     }
 
     // Write binary
-    let abi = CanonicalAbi::new(&resolve);
-    let ty = Type::Id(type_id);
-
-    let mut memory = LinearMemory::new();
-    let buffer = abi.lower_with_memory(&parsed_value, &ty, &wave_type, &mut memory)?;
-
-    let memory_bytes = memory.into_bytes();
-
-    let mut out = std::fs::File::create(output)?;
-    out.write_all(&buffer)?;
-    if !memory_bytes.is_empty() {
-        out.write_all(&memory_bytes)?;
-    }
+    let binary = wave_to_binary(wave_text, &resolved)?;
+    std::fs::write(output, &binary)?;
 
     Ok(())
 }
@@ -300,9 +259,7 @@ fn cmd_validate(
     value: Option<String>,
     file: Option<PathBuf>,
 ) -> Result<(), AppError> {
-    let (resolve, type_id) = load_wit_type_from_path(wit_path, type_name)?;
-    let wave_type =
-        resolve_wit_type(&resolve, type_id).map_err(|e| AppError::WaveParse(e.to_string()))?;
+    let resolved = load_wit_type_from_path(wit_path, type_name)?;
 
     // Read WAVE text from --value, --file, or stdin
     let wave_text = if let Some(v) = value {
@@ -320,15 +277,8 @@ fn cmd_validate(
         return Err(AppError::MissingValueInput);
     }
 
-    // Parse and validate
-    let parsed_value =
-        wave_from_str(&wave_type, wave_text).map_err(|e| AppError::WaveParse(e.to_string()))?;
-
-    // Also verify it can be encoded
-    let abi = CanonicalAbi::new(&resolve);
-    let ty = Type::Id(type_id);
-    let mut memory = LinearMemory::new();
-    let _buffer = abi.lower_with_memory(&parsed_value, &ty, &wave_type, &mut memory)?;
+    // Parse, validate, and verify it can be encoded
+    wave_to_binary(wave_text, &resolved)?;
 
     println!("Valid");
     Ok(())
@@ -356,7 +306,7 @@ fn format_error(e: &AppError) {
         AppError::Library(wit_core::Error::WitParse(_)) => {
             eprintln!("Hint: Check the WIT file for syntax errors.");
         }
-        AppError::FileTooSmall { .. } => {
+        AppError::Library(wit_core::Error::DataTooSmall { .. }) => {
             eprintln!("Hint: The file may be truncated or encoded for a different type.");
         }
         AppError::SchemaNotFound(_) => {

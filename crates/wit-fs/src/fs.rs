@@ -13,7 +13,7 @@ use crate::error::{ErrorKind, ValidationError};
 use crate::inode::{FilenameParts, InodeKind, InodeTable, ValueExt, ROOT_INO, parse_filename};
 use crate::schema::SchemaCache;
 use crate::store::Store;
-use crate::validate::{binary_to_wave, validate_binary, validate_wave};
+use crate::validate::{validate_binary, validate_wave};
 
 const TTL: Duration = Duration::from_secs(1);
 const BLOCK_SIZE: u32 = 512;
@@ -118,7 +118,7 @@ impl Inner {
             } => {
                 let binary = self.store.read_value(dir_name, value_name).ok()??;
                 let schema = self.schemas.get_schema(dir_name)?;
-                let wave_text = binary_to_wave(&binary, schema).ok()?;
+                let wave_text = wit_core::binary_to_wave(&binary, &schema.resolved).ok()?;
                 Some(wave_text.into_bytes())
             }
             InodeKind::WitbFile {

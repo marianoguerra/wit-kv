@@ -71,5 +71,6 @@ pub use wit_kv_abi::{ValConvertError, val_to_wave, wave_to_val};
 
 // Re-export shared utilities from wit-core
 pub use wit_core::{
-    find_first_named_type, find_type_by_name, load_wit_type_from_path, load_wit_type_from_string,
+    ResolvedType, binary_to_wave, find_first_named_type, find_type_by_name,
+    load_wit_type_from_path, load_wit_type_from_string, wave_to_binary,
 };

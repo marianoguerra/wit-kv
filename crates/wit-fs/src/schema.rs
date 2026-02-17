@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
-use wit_core::{Resolve, TypeId, WaveType, load_wit_type_from_string};
+use wit_core::{ResolvedType, load_wit_type_from_string};
 
 use crate::error::{FsError, VALIDATION_ERROR_WIT};
 
 /// Cached parsed schema for a directory.
 pub struct ParsedSchema {
-    pub resolve: Resolve,
-    pub type_id: TypeId,
-    pub wave_type: WaveType,
+    pub resolved: ResolvedType,
     pub wit_content: String,
 }
 
@@ -28,16 +26,13 @@ impl SchemaCache {
 
     /// Parse and cache a schema for a directory.
     pub fn set_schema(&mut self, dir: &str, wit_content: &str) -> Result<(), FsError> {
-        let (resolve, type_id, wave_type) =
-            load_wit_type_from_string(wit_content, None).map_err(|e| {
-                FsError::Schema(format!("Failed to parse .type.wit: {e}"))
-            })?;
+        let resolved = load_wit_type_from_string(wit_content, None).map_err(|e| {
+            FsError::Schema(format!("Failed to parse .type.wit: {e}"))
+        })?;
         self.schemas.insert(
             dir.to_string(),
             ParsedSchema {
-                resolve,
-                type_id,
-                wave_type,
+                resolved,
                 wit_content: wit_content.to_string(),
             },
         );
@@ -62,13 +57,11 @@ impl SchemaCache {
     /// Get the error schema (lazily parsed).
     pub fn get_error_schema(&mut self) -> Result<&ParsedSchema, FsError> {
         if self.error_schema.is_none() {
-            let (resolve, type_id, wave_type) =
+            let resolved =
                 load_wit_type_from_string(VALIDATION_ERROR_WIT, Some("validation-error"))
                     .map_err(|e| FsError::Schema(format!("Failed to parse error schema: {e}")))?;
             self.error_schema = Some(ParsedSchema {
-                resolve,
-                type_id,
-                wave_type,
+                resolved,
                 wit_content: VALIDATION_ERROR_WIT.to_string(),
             });
         }

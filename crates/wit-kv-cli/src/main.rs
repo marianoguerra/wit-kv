@@ -5,8 +5,8 @@ use thiserror::Error;
 use wit_kv::kv::{BinaryExport, KvError, KvStore};
 use wit_kv::wasm::{TypedRunner, WasmError};
 use wit_kv::{
-    CanonicalAbi, CanonicalAbiError, LinearMemory, Resolve, Type, TypeId, ValConvertError, Value,
-    resolve_wit_type, val_to_wave, wave_from_str, wave_to_string,
+    CanonicalAbi, CanonicalAbiError, LinearMemory, ResolvedType, Type, ValConvertError, Value,
+    val_to_wave, wave_from_str, wave_to_string,
 };
 
 /// CLI-specific errors.
@@ -415,19 +415,17 @@ fn run(cli: Cli) -> Result<(), AppError> {
             value,
             output,
         } => {
-            let (resolve, type_id) = load_wit_type(&wit, type_name.as_deref())?;
-            let wave_type = resolve_wit_type(&resolve, type_id)
+            let resolved = load_wit_type(&wit, type_name.as_deref())?;
+
+            let parsed_value: Value = wave_from_str(&resolved.wave_type, &value)
                 .map_err(|e| AppError::WaveParse(e.to_string()))?;
 
-            let parsed_value: Value = wave_from_str(&wave_type, &value)
-                .map_err(|e| AppError::WaveParse(e.to_string()))?;
-
-            let abi = CanonicalAbi::new(&resolve);
-            let ty = Type::Id(type_id);
+            let abi = CanonicalAbi::new(&resolved.resolve);
+            let ty = Type::Id(resolved.type_id);
 
             // Use linear memory to support variable-length types (strings, lists)
             let mut memory = LinearMemory::new();
-            let binary = abi.lower_with_memory(&parsed_value, &ty, &wave_type, &mut memory)?;
+            let binary = abi.lower_with_memory(&parsed_value, &ty, &resolved.wave_type, &mut memory)?;
 
             // Export using binary-export WIT type (single file with buffer + memory)
             let memory_bytes = memory.into_bytes();
@@ -459,9 +457,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
             input,
             output,
         } => {
-            let (resolve, type_id) = load_wit_type(&wit, type_name.as_deref())?;
-            let wave_type = resolve_wit_type(&resolve, type_id)
-                .map_err(|e| AppError::WaveParse(e.to_string()))?;
+            let resolved = load_wit_type(&wit, type_name.as_deref())?;
 
             // Read binary-export format (single file with buffer + memory)
             let data = std::fs::read(&input)?;
@@ -469,11 +465,11 @@ fn run(cli: Cli) -> Result<(), AppError> {
 
             // Lift the value from the exported buffer and memory
             // Uses Val-based path: binary -> Val -> wasm_wave::Value -> text
-            let abi = CanonicalAbi::new(&resolve);
-            let ty = Type::Id(type_id);
+            let abi = CanonicalAbi::new(&resolved.resolve);
+            let ty = Type::Id(resolved.type_id);
             let memory = LinearMemory::from_option(export.memory);
             let (val, _bytes_read) = abi.lift_to_val(&export.buffer, &ty, None, &memory)?;
-            let value = val_to_wave(&val, &wave_type)?;
+            let value = val_to_wave(&val, &resolved.wave_type)?;
 
             let wave_str =
                 wave_to_string(&value).map_err(|e| AppError::WaveWrite(e.to_string()))?;
@@ -763,7 +759,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
 fn load_wit_type(
     wit_path: &std::path::Path,
     type_name: Option<&str>,
-) -> Result<(Resolve, TypeId), AppError> {
+) -> Result<ResolvedType, AppError> {
     Ok(wit_kv::load_wit_type_from_path(wit_path, type_name).map_err(wit_kv::Error::from)?)
 }
 

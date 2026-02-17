@@ -349,19 +349,19 @@ impl KvStore {
             .ok_or_else(|| KvError::KeyspaceNotFound(keyspace.to_string()))?;
 
         // Parse WIT type from stored definition
-        let (resolve, type_id, wave_type) = self.parse_stored_type(&metadata)?;
+        let resolved = self.parse_stored_type(&metadata)?;
         trace!(type_name = %metadata.type_name, "parsed WIT type for encoding");
 
         // Parse the WAVE value
-        let value: Value = wasm_wave::from_str(&wave_type, wave_value).map_err(|e| {
+        let value: Value = wasm_wave::from_str(&resolved.wave_type, wave_value).map_err(|e| {
             error!(keyspace = keyspace, key = key, error = %e, "failed to parse WAVE value");
             KvError::WaveParse(e.to_string())
         })?;
 
         // Lower to canonical ABI
-        let abi = CanonicalAbi::new(&resolve);
+        let abi = CanonicalAbi::new(&resolved.resolve);
         let mut memory = LinearMemory::new();
-        let encoded = abi.lower_with_memory(&value, &Type::Id(type_id), &wave_type, &mut memory)?;
+        let encoded = abi.lower_with_memory(&value, &Type::Id(resolved.type_id), &resolved.wave_type, &mut memory)?;
         trace!(
             buffer_size = encoded.len(),
             memory_size = memory.len(),
@@ -429,14 +429,14 @@ impl KvStore {
         }
 
         // Parse WIT type
-        let (resolve, type_id, wave_type) = self.parse_stored_type(&metadata)?;
+        let resolved = self.parse_stored_type(&metadata)?;
 
         // Lift from canonical ABI to Val, then convert to wasm_wave::Value for text display
-        let abi = CanonicalAbi::new(&resolve);
+        let abi = CanonicalAbi::new(&resolved.resolve);
         let memory = LinearMemory::from_option(stored.memory);
 
-        let (val, _) = abi.lift_to_val(&stored.value, &Type::Id(type_id), None, &memory)?;
-        let value = val_to_wave(&val, &wave_type).map_err(|e| KvError::WaveParse(e.to_string()))?;
+        let (val, _) = abi.lift_to_val(&stored.value, &Type::Id(resolved.type_id), None, &memory)?;
+        let value = val_to_wave(&val, &resolved.wave_type).map_err(|e| KvError::WaveParse(e.to_string()))?;
 
         // Convert to WAVE text
         let wave_str =
@@ -610,7 +610,7 @@ impl KvStore {
     fn parse_stored_type(
         &self,
         metadata: &KeyspaceMetadata,
-    ) -> Result<(Resolve, TypeId, wasm_wave::value::Type), KvError> {
+    ) -> Result<crate::ResolvedType, KvError> {
         crate::load_wit_type_from_string(&metadata.wit_definition, Some(&metadata.type_name))
             .map_err(|e| KvError::WaveParse(e.to_string()))
     }
