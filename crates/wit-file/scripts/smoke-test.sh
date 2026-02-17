@@ -5,7 +5,7 @@ set -euo pipefail
 # Use release binary by default, allow override
 MODE="${1:-release}"
 WIT_FILE="./target/${MODE}/wit-file"
-WIT="./tests/wit-file/types.wit"
+WIT="./crates/wit-file/tests/types.wit"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 

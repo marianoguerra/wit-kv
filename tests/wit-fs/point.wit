@@ -1,8 +1,0 @@
-package example:points;
-
-interface types {
-    record point {
-        x: s32,
-        y: s32,
-    }
-}

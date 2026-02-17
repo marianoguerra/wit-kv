@@ -102,7 +102,7 @@ dist: build-all
     EOF
 
     # WIT schema
-    cp kv.wit dist/
+    cp crates/wit-kv/kv.wit dist/
 
     echo ""
     echo "Distribution created in dist/"

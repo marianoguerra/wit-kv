@@ -1,9 +1,0 @@
-package example:colors;
-
-interface types {
-    enum color {
-        red,
-        green,
-        blue,
-    }
-}
