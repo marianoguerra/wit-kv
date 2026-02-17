@@ -9,11 +9,11 @@ use fuser::{
     ReplyOpen, ReplyWrite, ReplyXattr, Request,
 };
 
-use crate::error::{ErrorKind, ValidationError};
-use crate::inode::{FilenameParts, InodeKind, InodeTable, ValueExt, ROOT_INO, parse_filename};
-use crate::schema::SchemaCache;
-use crate::store::Store;
-use crate::validate::{validate_binary, validate_wave};
+use super::error::{ErrorKind, ValidationError};
+use super::inode::{FilenameParts, InodeKind, InodeTable, ValueExt, ROOT_INO, parse_filename};
+use super::schema::SchemaCache;
+use super::store::Store;
+use super::validate::{validate_binary, validate_wave};
 
 const TTL: Duration = Duration::from_secs(1);
 const BLOCK_SIZE: u32 = 512;
@@ -173,6 +173,13 @@ impl Inner {
         value_name: &str,
         error: ValidationError,
     ) -> Errno {
+        tracing::warn!(
+            dir = %dir_name,
+            value = %value_name,
+            kind = ?error.error_kind,
+            "Validation failed: {}",
+            error.message,
+        );
         let dir_ino = match self.inodes.get_dir_ino(dir_name) {
             Some(ino) => ino,
             None => return EIO,
@@ -207,7 +214,7 @@ impl WitFs {
         };
 
         if let Err(e) = load_from_store(&mut inner) {
-            eprintln!("Warning: failed to load backing store: {e}");
+            tracing::warn!("Failed to load backing store: {e}");
         }
 
         Self {
@@ -220,8 +227,9 @@ impl WitFs {
     }
 }
 
-fn load_from_store(inner: &mut Inner) -> Result<(), crate::error::FsError> {
+fn load_from_store(inner: &mut Inner) -> Result<(), super::error::Error> {
     let dirs = inner.store.list_dirs()?;
+    tracing::info!(count = dirs.len(), "Loading directories from backing store");
     for dir_name in &dirs {
         let dir_ino = inner.inodes.add_dir(dir_name);
 
@@ -547,7 +555,7 @@ impl Filesystem for WitFs {
                 let dir_name = dir_name.clone();
 
                 if let Err(e) = s.schemas.set_schema(&dir_name, &content) {
-                    eprintln!("Schema parse error: {e}");
+                    tracing::warn!(dir = %dir_name, "Schema parse error: {e}");
                     reply.error(EINVAL);
                     return;
                 }
@@ -565,6 +573,7 @@ impl Filesystem for WitFs {
                     }
                 };
                 s.inodes.add_schema_files(&dir_name, dir_ino);
+                tracing::info!(dir = %dir_name, "Schema updated");
                 reply.ok();
             }
             InodeKind::WaveFile {
@@ -789,6 +798,7 @@ impl Filesystem for WitFs {
         }
 
         let dir_ino = s.inodes.add_dir(&name_str);
+        tracing::debug!(dir = %name_str, "Directory created");
         let attr = s.make_dir_attr(dir_ino);
         reply.entry(&TTL, &attr, GEN);
     }

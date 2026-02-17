@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wit_core::{ResolvedType, load_wit_type_from_string};
 
-use crate::error::{FsError, VALIDATION_ERROR_WIT};
+use super::error::{Error, VALIDATION_ERROR_WIT};
 
 /// Cached parsed schema for a directory.
 pub struct ParsedSchema {
@@ -25,9 +25,9 @@ impl SchemaCache {
     }
 
     /// Parse and cache a schema for a directory.
-    pub fn set_schema(&mut self, dir: &str, wit_content: &str) -> Result<(), FsError> {
+    pub fn set_schema(&mut self, dir: &str, wit_content: &str) -> Result<(), Error> {
         let resolved = load_wit_type_from_string(wit_content, None).map_err(|e| {
-            FsError::Schema(format!("Failed to parse .type.wit: {e}"))
+            Error::Schema(format!("Failed to parse .type.wit: {e}"))
         })?;
         self.schemas.insert(
             dir.to_string(),
@@ -55,11 +55,11 @@ impl SchemaCache {
     }
 
     /// Get the error schema (lazily parsed).
-    pub fn get_error_schema(&mut self) -> Result<&ParsedSchema, FsError> {
+    pub fn get_error_schema(&mut self) -> Result<&ParsedSchema, Error> {
         if self.error_schema.is_none() {
             let resolved =
                 load_wit_type_from_string(VALIDATION_ERROR_WIT, Some("validation-error"))
-                    .map_err(|e| FsError::Schema(format!("Failed to parse error schema: {e}")))?;
+                    .map_err(|e| Error::Schema(format!("Failed to parse error schema: {e}")))?;
             self.error_schema = Some(ParsedSchema {
                 resolved,
                 wit_content: VALIDATION_ERROR_WIT.to_string(),

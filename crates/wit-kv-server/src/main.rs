@@ -18,7 +18,7 @@ use server::{AppState, Config, CorsConfig, init_logging, router};
 #[derive(Parser, Debug)]
 #[command(name = "wit-kv-server")]
 #[command(about = "HTTP API server for wit-kv typed key-value store")]
-struct Args {
+struct Cli {
     /// Path to the configuration file.
     #[arg(short, long, default_value = "wit-kv-server.toml")]
     config: PathBuf,
@@ -74,10 +74,10 @@ fn build_cors_layer(config: &CorsConfig) -> CorsLayer {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let cli = Cli::parse();
 
     // Load configuration first (needed for logging setup)
-    let config = Config::from_file(&args.config)?;
+    let config = Config::from_file(&cli.config)?;
     let bind_addr = config.bind_addr();
 
     // Initialize logging from config

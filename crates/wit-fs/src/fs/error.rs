@@ -1,4 +1,6 @@
-use thiserror::Error;
+//! Error types for the wit-fs filesystem.
+
+use thiserror::Error as ThisError;
 
 /// The WIT definition for the validation error type.
 ///
@@ -135,13 +137,16 @@ fn days_to_date(days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
+/// A type alias for `Result` with the wit-fs [`Error`] type.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors specific to the wit-fs filesystem.
-#[derive(Error, Debug)]
-pub enum FsError {
+#[derive(ThisError, Debug)]
+pub enum Error {
     #[error(transparent)]
     Core(#[from] wit_core::Error),
 
-    #[error("IO error: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
     #[error("Schema error: {0}")]

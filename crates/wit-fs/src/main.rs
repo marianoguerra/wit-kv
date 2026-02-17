@@ -1,13 +1,9 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use tracing_subscriber::EnvFilter;
 
-mod error;
 mod fs;
-mod inode;
-mod schema;
-mod store;
-mod validate;
 
 /// FUSE filesystem for WIT-typed files.
 ///
@@ -18,6 +14,10 @@ mod validate;
 #[command(name = "wit-fs")]
 #[command(about = "FUSE filesystem for WIT-typed files")]
 struct Cli {
+    /// Log level (trace, debug, info, warn, error)
+    #[arg(long, default_value = "info")]
+    log_level: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -38,16 +38,61 @@ enum Commands {
     },
 }
 
+/// Format an error for user-friendly display.
+fn format_error(err: &fs::Error) -> String {
+    use std::io::IsTerminal;
+
+    let use_colors = std::io::stderr().is_terminal();
+
+    let (red, yellow, reset) = if use_colors {
+        ("\x1b[0;31m", "\x1b[0;33m", "\x1b[0m")
+    } else {
+        ("", "", "")
+    };
+
+    let mut output = format!("{red}Error:{reset} {err}\n");
+
+    if let Some(hint) = get_error_hint(err) {
+        output.push_str(&format!("{yellow}Hint:{reset} {hint}\n"));
+    }
+
+    output
+}
+
+/// Get a helpful hint for common errors.
+fn get_error_hint(err: &fs::Error) -> Option<&'static str> {
+    match err {
+        fs::Error::Io(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            Some("Check that you have permission to access the backing directory and mountpoint")
+        }
+        fs::Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Some("Check that the parent directory exists")
+        }
+        fs::Error::Schema(_) => {
+            Some("Ensure .type.wit files contain valid WIT type definitions")
+        }
+        _ => None,
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
-    if let Err(e) = run(cli) {
-        eprintln!("Error: {e}");
+    // Initialize logging (RUST_LOG env var overrides --log-level)
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(&cli.log_level));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .init();
+
+    if let Err(err) = run(cli) {
+        eprint!("{}", format_error(&err));
         std::process::exit(1);
     }
 }
 
-fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+fn run(cli: Cli) -> Result<(), fs::Error> {
     match cli.command {
         Commands::Mount {
             backing_dir,
@@ -60,7 +105,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 std::fs::create_dir_all(&mountpoint)?;
             }
 
-            let backing_store = store::Store::new(backing_dir.clone())?;
+            let backing_store = fs::Store::new(backing_dir.clone())?;
             let uid = unsafe { libc::getuid() };
             let gid = unsafe { libc::getgid() };
             let wit_fs = fs::WitFs::new(backing_store, read_only, uid, gid);
@@ -80,11 +125,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .display()
                 .to_string();
 
-            eprintln!("Mounting wit-fs at {}", mountpoint.display());
-            eprintln!("Backing store: {display_path}");
-            eprintln!("Press Ctrl+C to unmount");
+            tracing::info!(mountpoint = %mountpoint.display(), "Mounting wit-fs");
+            tracing::info!(backing_store = %display_path, "Backing store path");
+            if read_only {
+                tracing::info!("Mounted as read-only");
+            }
 
             fuser::mount2(wit_fs, &mountpoint, &config)?;
+
+            tracing::info!("Filesystem unmounted, shutdown complete");
             Ok(())
         }
     }

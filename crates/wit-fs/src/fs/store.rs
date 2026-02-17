@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::FsError;
+use super::error::Error;
 
 /// Backing store that persists values and schemas to disk.
 ///
@@ -26,7 +26,7 @@ pub struct StoredEntry {
 }
 
 impl Store {
-    pub fn new(root: PathBuf) -> Result<Self, FsError> {
+    pub fn new(root: PathBuf) -> Result<Self, Error> {
         fs::create_dir_all(&root)?;
         Ok(Self { root })
     }
@@ -37,13 +37,13 @@ impl Store {
     }
 
     /// Ensure a directory exists in the backing store.
-    pub fn ensure_dir(&self, dir: &str) -> Result<(), FsError> {
+    pub fn ensure_dir(&self, dir: &str) -> Result<(), Error> {
         fs::create_dir_all(self.dir_path(dir))?;
         Ok(())
     }
 
     /// Remove a directory from the backing store.
-    pub fn remove_dir(&self, dir: &str) -> Result<(), FsError> {
+    pub fn remove_dir(&self, dir: &str) -> Result<(), Error> {
         let path = self.dir_path(dir);
         if path.exists() {
             fs::remove_dir_all(path)?;
@@ -52,7 +52,7 @@ impl Store {
     }
 
     /// Read `.type.wit` for a directory.
-    pub fn read_schema(&self, dir: &str) -> Result<Option<String>, FsError> {
+    pub fn read_schema(&self, dir: &str) -> Result<Option<String>, Error> {
         let path = self.dir_path(dir).join(".type.wit");
         if path.exists() {
             Ok(Some(fs::read_to_string(path)?))
@@ -62,7 +62,7 @@ impl Store {
     }
 
     /// Write `.type.wit` for a directory.
-    pub fn write_schema(&self, dir: &str, content: &str) -> Result<(), FsError> {
+    pub fn write_schema(&self, dir: &str, content: &str) -> Result<(), Error> {
         self.ensure_dir(dir)?;
         let path = self.dir_path(dir).join(".type.wit");
         fs::write(path, content)?;
@@ -70,7 +70,7 @@ impl Store {
     }
 
     /// Remove `.type.wit` for a directory.
-    pub fn remove_schema(&self, dir: &str) -> Result<(), FsError> {
+    pub fn remove_schema(&self, dir: &str) -> Result<(), Error> {
         let path = self.dir_path(dir).join(".type.wit");
         if path.exists() {
             fs::remove_file(path)?;
@@ -79,7 +79,7 @@ impl Store {
     }
 
     /// Read a value's binary data.
-    pub fn read_value(&self, dir: &str, name: &str) -> Result<Option<Vec<u8>>, FsError> {
+    pub fn read_value(&self, dir: &str, name: &str) -> Result<Option<Vec<u8>>, Error> {
         let path = self.dir_path(dir).join(format!("{name}.bin"));
         if path.exists() {
             Ok(Some(fs::read(path)?))
@@ -89,14 +89,14 @@ impl Store {
     }
 
     /// Write a value's binary data.
-    pub fn write_value(&self, dir: &str, name: &str, data: &[u8]) -> Result<(), FsError> {
+    pub fn write_value(&self, dir: &str, name: &str, data: &[u8]) -> Result<(), Error> {
         let path = self.dir_path(dir).join(format!("{name}.bin"));
         fs::write(path, data)?;
         Ok(())
     }
 
     /// Remove a value's binary data.
-    pub fn remove_value(&self, dir: &str, name: &str) -> Result<(), FsError> {
+    pub fn remove_value(&self, dir: &str, name: &str) -> Result<(), Error> {
         let path = self.dir_path(dir).join(format!("{name}.bin"));
         if path.exists() {
             fs::remove_file(path)?;
@@ -105,7 +105,7 @@ impl Store {
     }
 
     /// Read error binary data for a value.
-    pub fn read_error(&self, dir: &str, name: &str) -> Result<Option<Vec<u8>>, FsError> {
+    pub fn read_error(&self, dir: &str, name: &str) -> Result<Option<Vec<u8>>, Error> {
         let path = self.dir_path(dir).join(format!("{name}.err.bin"));
         if path.exists() {
             Ok(Some(fs::read(path)?))
@@ -115,21 +115,21 @@ impl Store {
     }
 
     /// Write error binary data for a value.
-    pub fn write_error(&self, dir: &str, name: &str, data: &[u8]) -> Result<(), FsError> {
+    pub fn write_error(&self, dir: &str, name: &str, data: &[u8]) -> Result<(), Error> {
         let path = self.dir_path(dir).join(format!("{name}.err.bin"));
         fs::write(path, data)?;
         Ok(())
     }
 
     /// Write error WAVE text for a value.
-    pub fn write_error_wave(&self, dir: &str, name: &str, text: &str) -> Result<(), FsError> {
+    pub fn write_error_wave(&self, dir: &str, name: &str, text: &str) -> Result<(), Error> {
         let path = self.dir_path(dir).join(format!("{name}.err.wave"));
         fs::write(path, text)?;
         Ok(())
     }
 
     /// Read error WAVE text for a value.
-    pub fn read_error_wave(&self, dir: &str, name: &str) -> Result<Option<String>, FsError> {
+    pub fn read_error_wave(&self, dir: &str, name: &str) -> Result<Option<String>, Error> {
         let path = self.dir_path(dir).join(format!("{name}.err.wave"));
         if path.exists() {
             Ok(Some(fs::read_to_string(path)?))
@@ -139,7 +139,7 @@ impl Store {
     }
 
     /// Remove error files for a value.
-    pub fn remove_error(&self, dir: &str, name: &str) -> Result<(), FsError> {
+    pub fn remove_error(&self, dir: &str, name: &str) -> Result<(), Error> {
         let bin_path = self.dir_path(dir).join(format!("{name}.err.bin"));
         if bin_path.exists() {
             fs::remove_file(bin_path)?;
@@ -159,7 +159,7 @@ impl Store {
     }
 
     /// List all value names in a directory (names without `.bin` extension).
-    pub fn list_values(&self, dir: &str) -> Result<Vec<String>, FsError> {
+    pub fn list_values(&self, dir: &str) -> Result<Vec<String>, Error> {
         let path = self.dir_path(dir);
         if !path.exists() {
             return Ok(Vec::new());
@@ -181,7 +181,7 @@ impl Store {
     }
 
     /// List all directories in the backing store.
-    pub fn list_dirs(&self) -> Result<Vec<String>, FsError> {
+    pub fn list_dirs(&self) -> Result<Vec<String>, Error> {
         let mut dirs = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
@@ -195,7 +195,7 @@ impl Store {
     }
 
     /// List all value names that have errors in a directory.
-    pub fn list_errors(&self, dir: &str) -> Result<Vec<String>, FsError> {
+    pub fn list_errors(&self, dir: &str) -> Result<Vec<String>, Error> {
         let path = self.dir_path(dir);
         if !path.exists() {
             return Ok(Vec::new());
@@ -217,7 +217,7 @@ impl Store {
     pub fn load_directory(
         &self,
         dir: &str,
-    ) -> Result<HashMap<String, (Vec<u8>, Option<String>, Option<Vec<u8>>)>, FsError> {
+    ) -> Result<HashMap<String, (Vec<u8>, Option<String>, Option<Vec<u8>>)>, Error> {
         let mut entries = HashMap::new();
         let values = self.list_values(dir)?;
         for name in values {

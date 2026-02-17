@@ -1,7 +1,7 @@
 use wit_core::{CanonicalAbi, LinearMemory, Type, wave_from_str};
 
-use crate::error::{ErrorKind, ValidationError};
-use crate::schema::ParsedSchema;
+use super::error::{ErrorKind, ValidationError};
+use super::schema::ParsedSchema;
 
 /// Validate WAVE text against a parsed schema and return the encoded binary.
 pub fn validate_wave(
