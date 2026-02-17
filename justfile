@@ -395,6 +395,12 @@ clean:
     rm -rf examples/sum-scores/target
     rm -rf examples/point-to-magnitude/target
 
+# Deep clean: remove ALL build artifacts (as close to fresh checkout as possible)
+clean-all: clean
+    rm -rf client/node_modules
+    rm -rf crates/wit-ast/bindings/js/node_modules
+    rm -rf crates/wit-ast/bindings/js/dist
+
 # Run the server with UI (for development)
 serve: build-server build-client
     #!/usr/bin/env bash
