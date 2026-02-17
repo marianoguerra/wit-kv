@@ -1,4 +1,4 @@
-/target
+target/
 /wasm-tools
 *.bin
 *.memory
@@ -9,6 +9,8 @@
 # Playground data directory
 .wit-kv-playground/
 
+# Distribution output
+/dist
+
 # Example build artifacts
-examples/*/target/
 examples/*/Cargo.lock
