@@ -13,14 +13,12 @@ pub struct ParsedSchema {
 /// Schema cache for directories.
 pub struct SchemaCache {
     schemas: HashMap<String, ParsedSchema>,
-    error_schema: Option<ParsedSchema>,
 }
 
 impl SchemaCache {
     pub fn new() -> Self {
         Self {
             schemas: HashMap::new(),
-            error_schema: None,
         }
     }
 
@@ -52,21 +50,6 @@ impl SchemaCache {
     /// Check if a directory has a schema.
     pub fn has_schema(&self, dir: &str) -> bool {
         self.schemas.contains_key(dir)
-    }
-
-    /// Get the error schema (lazily parsed).
-    pub fn get_error_schema(&mut self) -> Result<&ParsedSchema, Error> {
-        if self.error_schema.is_none() {
-            let resolved =
-                load_wit_type_from_string(VALIDATION_ERROR_WIT, Some("validation-error"))
-                    .map_err(|e| Error::Schema(format!("Failed to parse error schema: {e}")))?;
-            self.error_schema = Some(ParsedSchema {
-                resolved,
-                wit_content: VALIDATION_ERROR_WIT.to_string(),
-            });
-        }
-        // We just set it above, so this is safe
-        Ok(self.error_schema.as_ref().unwrap_or_else(|| unreachable!()))
     }
 
     /// Get the `.type.error.wit` content.

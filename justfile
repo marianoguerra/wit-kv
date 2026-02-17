@@ -223,9 +223,23 @@ build-point-to-magnitude:
 # Run all tests
 test: test-errors smoke-test-wit-file smoke-test-wit-fs smoke-test
 
-# Run clippy
-clippy:
-    cargo clippy
+# Lint all projects (Rust clippy + TypeScript type-checking)
+lint:
+    #!/usr/bin/env bash
+    set -e
+    echo ">>> Clippy: workspace..."
+    cargo clippy --workspace -- -D warnings
+    echo ""
+    echo ">>> Clippy: wit-ast..."
+    (cd crates/wit-ast && cargo clippy -- -D warnings)
+    echo ""
+    echo ">>> TypeScript: client..."
+    (cd client && npx tsc --noEmit)
+    echo ""
+    echo ">>> TypeScript: playground..."
+    (cd playground && npx tsc --noEmit)
+    echo ""
+    echo "All lint checks passed."
 
 # Run the usage example script
 usage-example: build

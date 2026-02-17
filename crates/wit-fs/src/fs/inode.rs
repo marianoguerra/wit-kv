@@ -44,31 +44,6 @@ pub enum InodeKind {
 }
 
 impl InodeKind {
-    /// Get the directory name this inode belongs to, if any.
-    pub fn dir_name(&self) -> Option<&str> {
-        match self {
-            Self::RootDir => None,
-            Self::TypedDir { dir_name }
-            | Self::SchemaFile { dir_name }
-            | Self::ErrorSchemaFile { dir_name }
-            | Self::WaveFile { dir_name, .. }
-            | Self::WitbFile { dir_name, .. }
-            | Self::WiterrFile { dir_name, .. }
-            | Self::WiterrbFile { dir_name, .. } => Some(dir_name),
-        }
-    }
-
-    /// Get the value name this inode represents, if any.
-    pub fn value_name(&self) -> Option<&str> {
-        match self {
-            Self::WaveFile { value_name, .. }
-            | Self::WitbFile { value_name, .. }
-            | Self::WiterrFile { value_name, .. }
-            | Self::WiterrbFile { value_name, .. } => Some(value_name),
-            _ => None,
-        }
-    }
-
     /// Whether this inode is a directory.
     pub fn is_dir(&self) -> bool {
         matches!(self, Self::RootDir | Self::TypedDir { .. })
@@ -193,10 +168,9 @@ impl InodeTable {
     /// Add schema file inodes for a directory.
     pub fn add_schema_files(&mut self, dir_name: &str, dir_ino: u64) {
         // .type.wit
-        if self
+        if !self
             .lookup_cache
-            .get(&(dir_ino, ".type.wit".to_string()))
-            .is_none()
+            .contains_key(&(dir_ino, ".type.wit".to_string()))
         {
             let ino = self.alloc_ino();
             self.insert(InodeEntry {
@@ -209,10 +183,9 @@ impl InodeTable {
         }
 
         // .type.error.wit
-        if self
+        if !self
             .lookup_cache
-            .get(&(dir_ino, ".type.error.wit".to_string()))
-            .is_none()
+            .contains_key(&(dir_ino, ".type.error.wit".to_string()))
         {
             let ino = self.alloc_ino();
             self.insert(InodeEntry {
@@ -322,10 +295,10 @@ impl InodeTable {
                 .map(|e| e.ino)
                 .collect();
             for child_ino in child_inos {
-                if let Some(entry) = self.entries.remove(&child_ino) {
-                    if let Some(name) = entry.kind.file_name() {
-                        self.lookup_cache.remove(&(dir_ino, name));
-                    }
+                if let Some(entry) = self.entries.remove(&child_ino)
+                    && let Some(name) = entry.kind.file_name()
+                {
+                    self.lookup_cache.remove(&(dir_ino, name));
                 }
             }
             self.entries.remove(&dir_ino);
@@ -368,37 +341,37 @@ pub fn parse_filename(name: &str) -> FilenameParts {
     if name == ".type.error.wit" {
         return FilenameParts::ErrorSchemaFile;
     }
-    if let Some(stem) = name.strip_suffix(".witerrb") {
-        if !stem.is_empty() {
-            return FilenameParts::Value {
-                stem: stem.to_string(),
-                ext: ValueExt::Witerrb,
-            };
-        }
+    if let Some(stem) = name.strip_suffix(".witerrb")
+        && !stem.is_empty()
+    {
+        return FilenameParts::Value {
+            stem: stem.to_string(),
+            ext: ValueExt::Witerrb,
+        };
     }
-    if let Some(stem) = name.strip_suffix(".witerr") {
-        if !stem.is_empty() {
-            return FilenameParts::Value {
-                stem: stem.to_string(),
-                ext: ValueExt::Witerr,
-            };
-        }
+    if let Some(stem) = name.strip_suffix(".witerr")
+        && !stem.is_empty()
+    {
+        return FilenameParts::Value {
+            stem: stem.to_string(),
+            ext: ValueExt::Witerr,
+        };
     }
-    if let Some(stem) = name.strip_suffix(".wave") {
-        if !stem.is_empty() {
-            return FilenameParts::Value {
-                stem: stem.to_string(),
-                ext: ValueExt::Wave,
-            };
-        }
+    if let Some(stem) = name.strip_suffix(".wave")
+        && !stem.is_empty()
+    {
+        return FilenameParts::Value {
+            stem: stem.to_string(),
+            ext: ValueExt::Wave,
+        };
     }
-    if let Some(stem) = name.strip_suffix(".witb") {
-        if !stem.is_empty() {
-            return FilenameParts::Value {
-                stem: stem.to_string(),
-                ext: ValueExt::Witb,
-            };
-        }
+    if let Some(stem) = name.strip_suffix(".witb")
+        && !stem.is_empty()
+    {
+        return FilenameParts::Value {
+            stem: stem.to_string(),
+            ext: ValueExt::Witb,
+        };
     }
     FilenameParts::Unknown
 }

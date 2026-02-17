@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::error::Error;
 
@@ -16,13 +15,6 @@ use super::error::Error;
 /// ```
 pub struct Store {
     root: PathBuf,
-}
-
-/// Represents a stored value entry.
-#[derive(Debug, Clone)]
-pub struct StoredEntry {
-    pub name: String,
-    pub data: Vec<u8>,
 }
 
 impl Store {
@@ -194,43 +186,4 @@ impl Store {
         Ok(dirs)
     }
 
-    /// List all value names that have errors in a directory.
-    pub fn list_errors(&self, dir: &str) -> Result<Vec<String>, Error> {
-        let path = self.dir_path(dir);
-        if !path.exists() {
-            return Ok(Vec::new());
-        }
-        let mut names = Vec::new();
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            let file_name = entry.file_name();
-            let name = file_name.to_string_lossy().to_string();
-            if let Some(stem) = name.strip_suffix(".err.wave") {
-                names.push(stem.to_string());
-            }
-        }
-        names.sort();
-        Ok(names)
-    }
-
-    /// Load all values and errors for a directory into memory.
-    pub fn load_directory(
-        &self,
-        dir: &str,
-    ) -> Result<HashMap<String, (Vec<u8>, Option<String>, Option<Vec<u8>>)>, Error> {
-        let mut entries = HashMap::new();
-        let values = self.list_values(dir)?;
-        for name in values {
-            let data = self.read_value(dir, &name)?.unwrap_or_default();
-            let err_wave = self.read_error_wave(dir, &name)?;
-            let err_bin = self.read_error(dir, &name)?;
-            entries.insert(name, (data, err_wave, err_bin));
-        }
-        Ok(entries)
-    }
-
-    /// Get the root path of the backing store.
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
 }

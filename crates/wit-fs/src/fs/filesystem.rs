@@ -83,7 +83,7 @@ impl Inner {
         FileAttr {
             ino: INodeNo(ino),
             size,
-            blocks: (size + u64::from(BLOCK_SIZE) - 1) / u64::from(BLOCK_SIZE),
+            blocks: size.div_ceil(u64::from(BLOCK_SIZE)),
             atime: self.creation_time,
             mtime: self.creation_time,
             ctime: self.creation_time,
@@ -233,10 +233,10 @@ fn load_from_store(inner: &mut Inner) -> Result<(), super::error::Error> {
     for dir_name in &dirs {
         let dir_ino = inner.inodes.add_dir(dir_name);
 
-        if let Some(wit_content) = inner.store.read_schema(dir_name)? {
-            if inner.schemas.set_schema(dir_name, &wit_content).is_ok() {
-                inner.inodes.add_schema_files(dir_name, dir_ino);
-            }
+        if let Some(wit_content) = inner.store.read_schema(dir_name)?
+            && inner.schemas.set_schema(dir_name, &wit_content).is_ok()
+        {
+            inner.inodes.add_schema_files(dir_name, dir_ino);
         }
 
         let values = inner.store.list_values(dir_name)?;
@@ -333,12 +333,13 @@ impl Filesystem for WitFs {
             }
         };
 
-        if let Some(0) = size {
-            if !entry.kind.is_read_only() && !entry.kind.is_dir() {
-                let attr = s.make_file_attr(ino, 0, entry.kind.is_read_only());
-                reply.attr(&TTL, &attr);
-                return;
-            }
+        if let Some(0) = size
+            && !entry.kind.is_read_only()
+            && !entry.kind.is_dir()
+        {
+            let attr = s.make_file_attr(ino, 0, entry.kind.is_read_only());
+            reply.attr(&TTL, &attr);
+            return;
         }
 
         let attr = if entry.kind.is_dir() {
@@ -464,7 +465,7 @@ impl Filesystem for WitFs {
             reply.data(&[]);
         } else {
             let end = std::cmp::min(offset + size as usize, content.len());
-            reply.data(&content[offset..end]);
+            reply.data(content.get(offset..end).unwrap_or_default());
         }
     }
 
@@ -501,10 +502,13 @@ impl Filesystem for WitFs {
 
         if let Some(buffer) = s.write_buffers.get_mut(&fh.0) {
             let offset = offset as usize;
-            if offset + data.len() > buffer.data.len() {
-                buffer.data.resize(offset + data.len(), 0);
+            let end = offset + data.len();
+            if end > buffer.data.len() {
+                buffer.data.resize(end, 0);
             }
-            buffer.data[offset..offset + data.len()].copy_from_slice(data);
+            if let Some(dest) = buffer.data.get_mut(offset..end) {
+                dest.copy_from_slice(data);
+            }
             reply.written(data.len() as u32);
         } else {
             reply.error(EIO);

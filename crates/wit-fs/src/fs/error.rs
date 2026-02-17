@@ -30,8 +30,6 @@ interface errors {
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorKind {
     WaveParse,
-    TypeMismatch,
-    SchemaError,
     AbiError,
 }
 
@@ -39,8 +37,6 @@ impl ErrorKind {
     fn as_wave_str(self) -> &'static str {
         match self {
             Self::WaveParse => "wave-parse",
-            Self::TypeMismatch => "type-mismatch",
-            Self::SchemaError => "schema-error",
             Self::AbiError => "abi-error",
         }
     }
@@ -137,9 +133,6 @@ fn days_to_date(days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
-/// A type alias for `Result` with the wit-fs [`Error`] type.
-pub type Result<T> = std::result::Result<T, Error>;
-
 /// Errors specific to the wit-fs filesystem.
 #[derive(ThisError, Debug)]
 pub enum Error {
@@ -151,7 +144,4 @@ pub enum Error {
 
     #[error("Schema error: {0}")]
     Schema(String),
-
-    #[error("Validation error: {0}")]
-    Validation(String),
 }
