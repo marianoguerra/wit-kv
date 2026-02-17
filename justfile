@@ -234,10 +234,14 @@ lint:
     (cd crates/wit-ast && cargo clippy -- -D warnings)
     echo ""
     echo ">>> TypeScript: client..."
-    (cd client && npx tsc --noEmit)
+    (cd client && npm install --silent && npx tsc)
     echo ""
     echo ">>> TypeScript: playground..."
-    (cd playground && npx tsc --noEmit)
+    if [ -d playground/src/lib/witast ]; then
+        (cd playground && npm install --silent && npx tsc --noEmit)
+    else
+        echo "  Skipped (witast bindings not built). Run 'just build-wit-ast-js' first."
+    fi
     echo ""
     echo "All lint checks passed."
 
