@@ -221,8 +221,7 @@ build-point-to-magnitude:
     cd examples/point-to-magnitude && cargo component build --release --target wasm32-unknown-unknown
 
 # Run all tests
-test:
-    cargo test
+test: test-errors smoke-test-wit-file smoke-test-wit-fs smoke-test
 
 # Run clippy
 clippy:
@@ -230,19 +229,19 @@ clippy:
 
 # Run the usage example script
 usage-example: build
-    ./scripts/usage-example.sh release
+    ./crates/wit-kv-cli/scripts/usage-example.sh release
 
 # Run the error conditions test script
 test-errors: build
-    ./scripts/test-errors.sh release
+    ./crates/wit-kv-cli/scripts/test-errors.sh release
 
 # Run wit-file smoke tests (roundtrip all WIT types)
 smoke-test-wit-file: build
-    ./scripts/smoke-test-wit-file.sh release
+    ./crates/wit-file/scripts/smoke-test.sh release
 
 # Run wit-fs smoke tests (mount, write, read, validate, error handling)
 smoke-test-wit-fs: build
-    ./scripts/smoke-test-wit-fs.sh release
+    ./crates/wit-fs/scripts/smoke-test.sh release
 
 # Run all smoke tests (usage example + map/reduce examples + unit tests)
 smoke-test: build build-examples
@@ -258,7 +257,7 @@ smoke-test: build build-examples
     echo ""
 
     echo ">>> Running usage example script..."
-    ./scripts/usage-example.sh release
+    ./crates/wit-kv-cli/scripts/usage-example.sh release
     echo ""
 
     echo ">>> Setting up map/reduce test environment..."

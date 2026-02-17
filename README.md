@@ -205,10 +205,10 @@ Main buffer (8 bytes):         Linear memory:
 
 ```bash
 # Build everything
-cargo build --workspace --release
+just dist
 
-# Run tests
-cargo test
+# Run all tests
+just test
 
 # Run wit-file smoke tests
 just smoke-test-wit-file
@@ -238,7 +238,6 @@ wit-kv/
 ├── examples/               # Map/reduce example components
 ├── tests/                  # Integration test fixtures
 │   └── wit-file/           # wit-file smoke test WIT definitions
-├── scripts/                # Smoke test scripts
 └── kv.wit                  # Storage format types
 ```
 

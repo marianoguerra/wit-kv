@@ -20,7 +20,7 @@ NC='\033[0m' # No Color
 
 # Get the directory where the script is located and find project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # Determine the wit-kv command
 if [ "$1" = "release" ]; then
