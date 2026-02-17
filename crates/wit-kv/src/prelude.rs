@@ -16,7 +16,7 @@
 // Unified error handling
 pub use crate::error::{Error, Result};
 
-// ABI types (from wit-kv-abi crate)
+// ABI types (from wit-core)
 pub use crate::{CanonicalAbi, CanonicalAbiError, EncodedValue, LinearMemory};
 
 // KV store types (requires "kv" feature)

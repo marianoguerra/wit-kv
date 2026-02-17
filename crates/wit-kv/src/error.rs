@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::kv::KvError;
 #[cfg(feature = "wasm")]
 use crate::wasm::WasmError;
-use wit_kv_abi::CanonicalAbiError;
+use wit_core::CanonicalAbiError;
 
 /// Unified error type for all wit-kv operations.
 ///

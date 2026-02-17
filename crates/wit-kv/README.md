@@ -195,8 +195,7 @@ record keyspace-metadata {
 
 ## Dependencies
 
-- **wit-core** - Shared WIT utilities
-- **wit-kv-abi** - Canonical ABI encoding/decoding
+- **wit-core** - Shared WIT utilities and canonical ABI encoding/decoding
 - **fjall** - Persistent KV storage (optional, `kv` feature)
 - **wasmtime** - WebAssembly runtime (optional, `wasm` feature)
 

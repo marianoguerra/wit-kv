@@ -19,7 +19,6 @@ categories = ["wasm", "encoding", "database"]
 
 [workspace.dependencies]
 # Internal crates
-wit-kv-abi = { path = "crates/wit-kv-abi" }
 wit-core = { path = "crates/wit-core" }
 wit-kv = { path = "crates/wit-kv" }
 

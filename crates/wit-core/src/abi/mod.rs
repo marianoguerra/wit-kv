@@ -1,6 +1,6 @@
 //! Canonical ABI lowering and lifting for WIT values.
 //!
-//! This crate implements the canonical ABI memory layout for lowering values
+//! This module implements the canonical ABI memory layout for lowering values
 //! to binary and lifting binary data back to values.
 //!
 //! # Module Organization
@@ -50,7 +50,7 @@ use wit_parser::{Resolve, SizeAlign, Type};
 /// # Example
 ///
 /// ```ignore
-/// use wit_kv_abi::{CanonicalAbi, LinearMemory};
+/// use wit_core::{CanonicalAbi, LinearMemory};
 ///
 /// let resolve = /* ... */;
 /// let abi = CanonicalAbi::new(&resolve);
@@ -93,7 +93,7 @@ impl<'a> CanonicalAbi<'a> {
     /// # Example
     ///
     /// ```ignore
-    /// use wit_kv_abi::{CanonicalAbi, EncodedValue};
+    /// use wit_core::{CanonicalAbi, EncodedValue};
     ///
     /// let abi = CanonicalAbi::new(&resolve);
     /// let encoded = abi.encode(&value, &wit_ty, &wave_ty)?;
@@ -129,7 +129,7 @@ impl<'a> CanonicalAbi<'a> {
     /// # Example
     ///
     /// ```ignore
-    /// use wit_kv_abi::{CanonicalAbi, EncodedValue};
+    /// use wit_core::{CanonicalAbi, EncodedValue};
     ///
     /// let abi = CanonicalAbi::new(&resolve);
     /// let encoded = abi.encode(&value, &wit_ty, &wave_ty)?;
@@ -156,7 +156,7 @@ impl<'a> CanonicalAbi<'a> {
 /// # Example
 ///
 /// ```ignore
-/// use wit_kv_abi::{CanonicalAbi, EncodedValue};
+/// use wit_core::{CanonicalAbi, EncodedValue};
 ///
 /// let abi = CanonicalAbi::new(&resolve);
 ///

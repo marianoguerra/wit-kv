@@ -2,16 +2,19 @@
 name = "wit-core"
 version.workspace = true
 edition.workspace = true
-description = "Shared WIT utilities: type resolution, canonical ABI re-exports, and WAVE helpers"
+description = "Shared WIT utilities: type resolution, canonical ABI, and WAVE helpers"
 keywords = ["wasm", "wit", "component-model", "canonical-abi"]
 categories = ["wasm", "encoding"]
 
+[features]
+val = ["dep:wasmtime"]
+
 [dependencies]
-wit-kv-abi.workspace = true
 thiserror.workspace = true
 wit-parser.workspace = true
 wasm-wave.workspace = true
 anyhow.workspace = true
+wasmtime = { workspace = true, optional = true }
 
 [lints]
 workspace = true

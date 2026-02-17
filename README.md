@@ -10,8 +10,7 @@ The project brings the type safety of the WebAssembly Component Model to storage
 
 | Crate | Description |
 |-------|-------------|
-| [`wit-core`](crates/wit-core/) | Shared WIT utilities: type resolution, canonical ABI re-exports, WAVE helpers |
-| [`wit-kv-abi`](crates/wit-kv-abi/) | Canonical ABI encoding/decoding engine (standalone, no runtime deps) |
+| [`wit-core`](crates/wit-core/) | Shared WIT utilities: type resolution, canonical ABI encoding, WAVE helpers |
 | [`wit-kv`](crates/wit-kv/) | Typed key-value store library with WASM map/reduce |
 | [`wit-kv-cli`](crates/wit-kv-cli/) | CLI for the key-value store |
 | [`wit-kv-server`](crates/wit-kv-server/) | HTTP API server with content negotiation |
@@ -22,11 +21,7 @@ The project brings the type safety of the WebAssembly Component Model to storage
 
 ```
                         ┌──────────────┐
-                        │  wit-kv-abi  │  Canonical ABI encode/decode
-                        └──────┬───────┘
-                               │
-                        ┌──────┴───────┐
-                        │   wit-core   │  Type resolution, WAVE helpers
+                        │   wit-core   │  Canonical ABI, type resolution, WAVE helpers
                         └──┬───────┬───┘
                            │       │
               ┌────────────┘       └────────────┐
@@ -43,8 +38,7 @@ The project brings the type safety of the WebAssembly Component Model to storage
    └─────────┘  └─────────────┘
 ```
 
-- **wit-kv-abi** is the encoding engine, with no database or runtime dependencies
-- **wit-core** adds type resolution utilities on top, shared by both `wit-kv` and `wit-file`
+- **wit-core** is the encoding engine and type resolution layer, shared by both `wit-kv` and `wit-file`
 - **wit-kv** adds the persistent KV store (fjall) and WASM execution (wasmtime)
 - **wit-file** is a lightweight CLI that only needs `wit-core` for raw file I/O
 - **wit-ast** is independent — a WASM component for in-browser WIT parsing
@@ -226,8 +220,7 @@ cargo clippy --workspace
 wit-kv/
 ├── Cargo.toml              # Workspace manifest
 ├── crates/
-│   ├── wit-kv-abi/         # Canonical ABI encoding/decoding
-│   ├── wit-core/           # Shared type resolution + WAVE helpers
+│   ├── wit-core/           # Canonical ABI, type resolution + WAVE helpers
 │   ├── wit-kv/             # KV store library (fjall + wasmtime)
 │   ├── wit-kv-cli/         # CLI binary
 │   ├── wit-kv-server/      # HTTP server binary

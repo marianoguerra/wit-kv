@@ -27,10 +27,10 @@ use super::error::WasmError;
 use crate::find_type_by_name;
 use crate::kv::{SemanticVersion, StoredValue};
 use crate::logging::{debug, error, info, trace};
-use wit_kv_abi::{CanonicalAbi, LinearMemory};
+use wit_core::{CanonicalAbi, LinearMemory};
 
-// Re-export val conversion functions from wit_kv_abi
-pub use wit_kv_abi::{val_to_wave, wave_to_val};
+// Re-export val conversion functions from wit_core
+pub use wit_core::{val_to_wave, wave_to_val};
 
 /// Create a placeholder Val for function results based on type.
 pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {

@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use wit_kv_abi::{CanonicalAbiError, ValConvertError};
+use wit_core::{CanonicalAbiError, ValConvertError};
 
 /// Errors that can occur during WebAssembly module execution.
 #[derive(Error, Debug)]

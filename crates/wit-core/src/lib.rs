@@ -4,7 +4,7 @@
 //!
 //! - WIT type lookup and loading from files and strings
 //! - WAVE↔binary conversion via canonical ABI
-//! - Re-exports from `wit-kv-abi` (canonical ABI encoding/decoding)
+//! - Canonical ABI encoding/decoding (in the [`abi`] module)
 //! - Re-exports from `wit-parser` and `wasm-wave` for convenience
 //!
 //! # Example
@@ -20,12 +20,16 @@
 //! let wave = binary_to_wave(&binary, &resolved)?;
 //! ```
 
+pub mod abi;
 mod error;
 
 pub use error::{Error, Result};
 
-// Re-export from wit-kv-abi
-pub use wit_kv_abi::{CanonicalAbi, CanonicalAbiError, EncodedValue, LinearMemory};
+// Re-export from abi module
+pub use abi::{CanonicalAbi, CanonicalAbiError, EncodedValue, LinearMemory};
+
+#[cfg(feature = "val")]
+pub use abi::{ValConvertError, val_to_wave, wave_to_val};
 
 // Re-export from wit-parser and wasm-wave for convenience
 pub use wasm_wave::value::{Type as WaveType, Value, resolve_wit_type};

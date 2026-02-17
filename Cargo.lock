@@ -2827,7 +2827,7 @@ dependencies = [
  "anyhow",
  "thiserror 2.0.17",
  "wasm-wave",
- "wit-kv-abi",
+ "wasmtime",
  "wit-parser 0.244.0",
 ]
 
@@ -2863,17 +2863,6 @@ dependencies = [
  "wasm-wave",
  "wasmtime",
  "wit-core",
- "wit-kv-abi",
- "wit-parser 0.244.0",
-]
-
-[[package]]
-name = "wit-kv-abi"
-version = "0.1.0"
-dependencies = [
- "thiserror 2.0.17",
- "wasm-wave",
- "wasmtime",
  "wit-parser 0.244.0",
 ]
 

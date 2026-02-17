@@ -1,7 +1,7 @@
 //! Error types for wit-core operations.
 
 use thiserror::Error;
-use wit_kv_abi::CanonicalAbiError;
+use crate::abi::CanonicalAbiError;
 
 /// Error type for wit-core operations.
 #[derive(Error, Debug)]

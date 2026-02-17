@@ -11,12 +11,11 @@ default = ["kv", "wasm"]
 # Enable KV store functionality
 kv = ["dep:fjall", "dep:crc32fast"]
 # Enable WASM execution for map/reduce operations
-wasm = ["dep:wasmtime", "wit-kv-abi/val"]
+wasm = ["dep:wasmtime", "wit-core/val"]
 # Enable tracing-based logging
 logging = ["dep:tracing"]
 
 [dependencies]
-wit-kv-abi.workspace = true
 wit-core.workspace = true
 thiserror.workspace = true
 wit-parser.workspace = true

@@ -11,7 +11,7 @@ use super::buffer::align_to;
 /// # Example
 ///
 /// ```ignore
-/// use wit_kv_abi::LinearMemory;
+/// use wit_core::LinearMemory;
 ///
 /// // Create from various sources
 /// let mem = LinearMemory::new();

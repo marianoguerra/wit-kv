@@ -8,7 +8,7 @@ wit-core extracts the common functionality used across the wit-kv project into a
 
 - **WIT type lookup** - Find types by name in a parsed WIT resolve
 - **WIT loading** - Parse WIT definitions from files or strings
-- **Canonical ABI** - Re-exports from `wit-kv-abi` for encoding/decoding values
+- **Canonical ABI** - Encoding/decoding values via the `abi` module
 - **WAVE helpers** - Re-exports from `wasm-wave` for text serialization
 
 ## Usage
@@ -54,15 +54,15 @@ let text = wave_to_string(&decoded)?;
 
 | Source | Types |
 |--------|-------|
-| `wit-kv-abi` | `CanonicalAbi`, `LinearMemory`, `EncodedValue`, `CanonicalAbiError` |
+| `abi` | `CanonicalAbi`, `LinearMemory`, `EncodedValue`, `CanonicalAbiError` |
 | `wit-parser` | `Resolve`, `Type`, `TypeId` |
 | `wasm-wave` | `Value`, `WaveType`, `resolve_wit_type`, `wave_from_str`, `wave_to_string` |
 
 ## Dependencies
 
-- **wit-kv-abi** - Canonical ABI encoding/decoding
 - **wit-parser** - WIT definition parsing
 - **wasm-wave** - WAVE value types and serialization
+- **wasmtime** - Optional, for direct `Val` conversion (`val` feature)
 
 ## License
 

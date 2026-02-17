@@ -8,7 +8,7 @@ use wit_parser::{Resolve, Type, TypeId};
 
 use crate::logging::{debug, error, info, trace, warn};
 use crate::{CanonicalAbi, LinearMemory, find_first_named_type, find_type_by_name};
-use wit_kv_abi::val_to_wave;
+use wit_core::val_to_wave;
 
 use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};

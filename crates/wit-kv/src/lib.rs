@@ -43,8 +43,8 @@ pub mod prelude;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
-// Re-export from wit-kv-abi
-pub use wit_kv_abi::{CanonicalAbi, CanonicalAbiError, EncodedValue, LinearMemory};
+// Re-export from wit-core
+pub use wit_core::{CanonicalAbi, CanonicalAbiError, EncodedValue, LinearMemory};
 
 // Re-export from wit-parser and wasm-wave for convenience
 pub use wasm_wave::value::{Type as WaveType, Value, resolve_wit_type};
@@ -67,7 +67,7 @@ pub use wasm::{TypedRunner, TypedRunnerBuilder, WasmError, create_placeholder_va
 
 // Re-export Val conversion functions (when wasm feature enabled)
 #[cfg(feature = "wasm")]
-pub use wit_kv_abi::{ValConvertError, val_to_wave, wave_to_val};
+pub use wit_core::{ValConvertError, val_to_wave, wave_to_val};
 
 // Re-export shared utilities from wit-core
 pub use wit_core::{
