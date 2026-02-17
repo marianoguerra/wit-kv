@@ -62,7 +62,7 @@ echo ""
 # ---- Mount ----
 echo "--- Mounting wit-fs ---"
 
-"$WIT_FS" mount "$BACKING" "$MOUNTPOINT" --foreground &
+"$WIT_FS" mount "$BACKING" "$MOUNTPOINT" &
 FS_PID=$!
 sleep 2
 

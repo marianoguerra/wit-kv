@@ -35,10 +35,6 @@ enum Commands {
         /// Mount as read-only
         #[arg(long)]
         read_only: bool,
-
-        /// Run in foreground (don't daemonize)
-        #[arg(long, short)]
-        foreground: bool,
     },
 }
 
@@ -57,7 +53,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             backing_dir,
             mountpoint,
             read_only,
-            foreground: _,
         } => {
             std::fs::create_dir_all(&backing_dir)?;
 
@@ -73,6 +68,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let mut config = fuser::Config::default();
             config.mount_options.push(fuser::MountOption::FSName("wit-fs".to_string()));
             config.mount_options.push(fuser::MountOption::DefaultPermissions);
+            #[cfg(target_os = "macos")]
+            config.mount_options.push(fuser::MountOption::CUSTOM("noappledouble".to_string()));
             if read_only {
                 config.mount_options.push(fuser::MountOption::RO);
             }
