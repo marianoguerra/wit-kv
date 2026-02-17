@@ -6,8 +6,7 @@ use wit_kv::kv::{BinaryExport, KvError, KvStore};
 use wit_kv::wasm::{TypedRunner, WasmError};
 use wit_kv::{
     CanonicalAbi, CanonicalAbiError, LinearMemory, Resolve, Type, TypeId, ValConvertError, Value,
-    find_first_named_type, find_type_by_name, resolve_wit_type, val_to_wave, wave_from_str,
-    wave_to_string,
+    resolve_wit_type, val_to_wave, wave_from_str, wave_to_string,
 };
 
 /// CLI-specific errors.
@@ -762,19 +761,10 @@ fn run(cli: Cli) -> Result<(), AppError> {
 }
 
 fn load_wit_type(
-    wit_path: &PathBuf,
+    wit_path: &std::path::Path,
     type_name: Option<&str>,
 ) -> Result<(Resolve, TypeId), AppError> {
-    let mut resolve = Resolve::new();
-    resolve.push_path(wit_path)?;
-
-    let type_id = match type_name {
-        Some(name) => find_type_by_name(&resolve, name)
-            .ok_or_else(|| AppError::TypeNotFound(name.to_string())),
-        None => find_first_named_type(&resolve).ok_or(AppError::NoTypes),
-    }?;
-
-    Ok((resolve, type_id))
+    Ok(wit_kv::load_wit_type_from_path(wit_path, type_name).map_err(wit_kv::Error::from)?)
 }
 
 /// Collects keys for processing based on filter options.

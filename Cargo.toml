@@ -20,6 +20,7 @@ categories = ["wasm", "encoding", "database"]
 [workspace.dependencies]
 # Internal crates
 wit-kv-abi = { path = "crates/wit-kv-abi" }
+wit-core = { path = "crates/wit-core" }
 wit-kv = { path = "crates/wit-kv" }
 
 # Core dependencies (always needed)
@@ -27,7 +28,7 @@ anyhow = "1"
 thiserror = "2"
 wit-parser = { version = "0.244", default-features = false }
 wasm-wave = { version = "0.244", default-features = false, features = ["wit"] }
-wit-bindgen = "0.51"
+wit-bindgen = "0.53"
 
 # Testing
 proptest = "1.4"

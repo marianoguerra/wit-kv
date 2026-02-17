@@ -17,6 +17,7 @@ logging = ["dep:tracing"]
 
 [dependencies]
 wit-kv-abi.workspace = true
+wit-core.workspace = true
 thiserror.workspace = true
 wit-parser.workspace = true
 wasm-wave.workspace = true

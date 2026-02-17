@@ -1,0 +1,19 @@
+[package]
+name = "wit-file"
+version.workspace = true
+edition.workspace = true
+description = "Read and write raw canonical ABI binary files using WIT type definitions"
+keywords = ["wasm", "wit", "component-model", "canonical-abi", "binary"]
+categories = ["command-line-utilities", "encoding"]
+
+[[bin]]
+name = "wit-file"
+path = "src/main.rs"
+
+[dependencies]
+wit-core.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

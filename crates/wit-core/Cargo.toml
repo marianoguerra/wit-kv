@@ -1,0 +1,17 @@
+[package]
+name = "wit-core"
+version.workspace = true
+edition.workspace = true
+description = "Shared WIT utilities: type resolution, canonical ABI re-exports, and WAVE helpers"
+keywords = ["wasm", "wit", "component-model", "canonical-abi"]
+categories = ["wasm", "encoding"]
+
+[dependencies]
+wit-kv-abi.workspace = true
+thiserror.workspace = true
+wit-parser.workspace = true
+wasm-wave.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true

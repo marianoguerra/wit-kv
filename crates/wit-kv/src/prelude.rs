@@ -34,4 +34,4 @@ pub use crate::wasm::{
 
 // Dependency re-exports
 pub use crate::{Resolve, Type, TypeId, Value, WaveType};
-pub use crate::{find_first_named_type, find_type_by_name, resolve_wit_type};
+pub use crate::{find_first_named_type, find_type_by_name, load_wit_type_from_path, resolve_wit_type};

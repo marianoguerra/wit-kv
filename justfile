@@ -12,6 +12,10 @@ build:
 build-cli:
     cargo build --release -p wit-kv-cli
 
+# Build only the wit-file binary
+build-wit-file:
+    cargo build --release -p wit-file
+
 # Build only the server binary
 build-server:
     cargo build --release -p wit-kv-server
@@ -155,6 +159,10 @@ usage-example: build
 # Run the error conditions test script
 test-errors: build
     ./scripts/test-errors.sh release
+
+# Run wit-file smoke tests (roundtrip all WIT types)
+smoke-test-wit-file: build
+    ./scripts/smoke-test-wit-file.sh release
 
 # Run all smoke tests (usage example + map/reduce examples + unit tests)
 smoke-test: build build-examples

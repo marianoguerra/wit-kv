@@ -69,66 +69,7 @@ pub use wasm::{TypedRunner, TypedRunnerBuilder, WasmError, create_placeholder_va
 #[cfg(feature = "wasm")]
 pub use wit_kv_abi::{ValConvertError, val_to_wave, wave_to_val};
 
-/// Find the first named type in a WIT resolve.
-///
-/// This searches through all types in the resolve and returns the first
-/// one that has the given name.
-pub fn find_first_named_type(resolve: &Resolve) -> Option<TypeId> {
-    resolve
-        .types
-        .iter()
-        .find_map(|(id, ty)| ty.name.as_ref().map(|_| id))
-}
-
-/// Find a type by name in a WIT resolve.
-///
-/// This searches through all types in the resolve and returns the first
-/// one with a matching name.
-pub fn find_type_by_name(resolve: &Resolve, name: &str) -> Option<TypeId> {
-    resolve.types.iter().find_map(|(id, ty)| {
-        if ty.name.as_ref().is_some_and(|n| n == name) {
-            Some(id)
-        } else {
-            None
-        }
-    })
-}
-
-/// Load a WIT type definition from a string.
-///
-/// Returns the Resolve, TypeId, and WaveType for the specified type.
-/// If `type_name` is None, uses the first named type in the definition.
-///
-/// # Example
-///
-/// ```ignore
-/// use wit_kv::load_wit_type_from_string;
-///
-/// let wit_def = r#"
-///     package test:types;
-///     interface types {
-///         record point { x: u32, y: u32 }
-///     }
-/// "#;
-///
-/// let (resolve, type_id, wave_type) = load_wit_type_from_string(wit_def, Some("point"))?;
-/// ```
-pub fn load_wit_type_from_string(
-    wit_definition: &str,
-    type_name: Option<&str>,
-) -> Result<(Resolve, TypeId, WaveType)> {
-    let mut resolve = Resolve::new();
-    resolve.push_str("input.wit", wit_definition)?;
-
-    let type_id = match type_name {
-        Some(name) => find_type_by_name(&resolve, name)
-            .ok_or_else(|| Error::WaveParse(format!("Type '{}' not found", name))),
-        None => find_first_named_type(&resolve)
-            .ok_or_else(|| Error::WaveParse("No named type found in WIT definition".to_string())),
-    }?;
-
-    let wave_type =
-        resolve_wit_type(&resolve, type_id).map_err(|e| Error::WaveParse(e.to_string()))?;
-
-    Ok((resolve, type_id, wave_type))
-}
+// Re-export shared utilities from wit-core
+pub use wit_core::{
+    find_first_named_type, find_type_by_name, load_wit_type_from_path, load_wit_type_from_string,
+};

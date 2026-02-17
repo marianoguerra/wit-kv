@@ -1,0 +1,109 @@
+/// Comprehensive test types for wit-file smoke tests.
+///
+/// Exercises all supported WIT types: primitives, records, variants,
+/// enums, flags, options, results, lists, strings, tuples, and nesting.
+package test:wit-file-types;
+
+interface types {
+    /// Simple 2D point (fixed-size record, no memory segment)
+    record point {
+        x: s32,
+        y: s32,
+    }
+
+    /// All primitive numeric types in a single record
+    record all-numbers {
+        a-bool: bool,
+        a-u8: u8,
+        a-u16: u16,
+        a-u32: u32,
+        a-u64: u64,
+        a-s8: s8,
+        a-s16: s16,
+        a-s32: s32,
+        a-s64: s64,
+        a-f32: f32,
+        a-f64: f64,
+        a-char: char,
+    }
+
+    /// Record with a string field (requires linear memory)
+    record greeting {
+        message: string,
+        count: u32,
+    }
+
+    /// Record with a list field (requires linear memory)
+    record scores {
+        values: list<u32>,
+        label: string,
+    }
+
+    /// Nested record (fixed-size)
+    record line-segment {
+        start: point,
+        end: point,
+    }
+
+    /// Enum type
+    enum color {
+        red,
+        green,
+        blue,
+    }
+
+    /// Flags type
+    flags permissions {
+        read,
+        write,
+        execute,
+    }
+
+    /// Variant with payloads
+    variant shape {
+        circle(u32),
+        rectangle(point),
+        empty,
+    }
+
+    /// Option type
+    record maybe-point {
+        value: option<point>,
+    }
+
+    /// Result type
+    record operation-result {
+        outcome: result<u32, string>,
+    }
+
+    /// Tuple type
+    record pair {
+        value: tuple<s32, s32>,
+    }
+
+    /// Nested lists and strings
+    record tag-set {
+        tags: list<string>,
+    }
+
+    /// Record with option<string> (variable-length optional)
+    record user {
+        name: string,
+        email: option<string>,
+    }
+
+    /// Zero-size flags (all unset)
+    record perm-holder {
+        perms: permissions,
+    }
+
+    /// List of records
+    record point-list {
+        points: list<point>,
+    }
+
+    /// Deeply nested: list of records with strings
+    record contacts {
+        entries: list<user>,
+    }
+}

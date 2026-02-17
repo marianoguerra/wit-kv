@@ -77,6 +77,14 @@ impl<'a> CanonicalAbi<'a> {
         Self { resolve, sizes }
     }
 
+    /// Returns the flat buffer size in bytes for the given WIT type.
+    ///
+    /// This is the size of the canonical ABI "flat" representation (the main buffer),
+    /// which does not include any linear memory used for variable-length types.
+    pub fn flat_size(&self, wit_ty: &Type) -> usize {
+        self.sizes.size(wit_ty).size_wasm32()
+    }
+
     /// Encode a WAVE value to canonical ABI format.
     ///
     /// This is a convenience method that handles linear memory automatically,

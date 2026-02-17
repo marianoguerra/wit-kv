@@ -88,3 +88,14 @@ impl Error {
         matches!(self, Self::Io(_))
     }
 }
+
+impl From<wit_core::Error> for Error {
+    fn from(e: wit_core::Error) -> Self {
+        match e {
+            wit_core::Error::Abi(e) => Self::Abi(e),
+            wit_core::Error::Io(e) => Self::Io(e),
+            wit_core::Error::WitParse(e) => Self::WitParse(e),
+            wit_core::Error::WaveParse(s) => Self::WaveParse(s),
+        }
+    }
+}
