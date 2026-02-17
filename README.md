@@ -15,6 +15,7 @@ The project brings the type safety of the WebAssembly Component Model to storage
 | [`wit-kv-cli`](crates/wit-kv-cli/) | CLI for the key-value store |
 | [`wit-kv-server`](crates/wit-kv-server/) | HTTP API server with content negotiation |
 | [`wit-file`](crates/wit-file/) | CLI for reading/writing raw canonical ABI binary files |
+| [`wit-fs`](crates/wit-fs/) | FUSE filesystem with WAVE text and canonical ABI binary views |
 | [`wit-ast`](crates/wit-ast/) | Standalone WASM component for WIT parsing in browser/edge runtimes |
 
 ### How they relate
@@ -22,15 +23,15 @@ The project brings the type safety of the WebAssembly Component Model to storage
 ```
                         ┌──────────────┐
                         │   wit-core   │  Canonical ABI, type resolution, WAVE helpers
-                        └──┬───────┬───┘
-                           │       │
-              ┌────────────┘       └────────────┐
-              │                                 │
-       ┌──────┴───────┐                 ┌───────┴──────┐
-       │    wit-kv     │                │   wit-file   │
-       │  (KV store +  │                │  (raw binary │
-       │   WASM exec)  │                │    files)    │
-       └──┬────────┬───┘                └──────────────┘
+                        └──┬─────┬─────┬──┘
+                           │     │     │
+              ┌────────────┘     │     └──────────────┐
+              │                  │                    │
+       ┌──────┴───────┐  ┌──────┴──────┐  ┌──────────┴───┐
+       │    wit-kv     │  │   wit-file  │  │    wit-fs    │
+       │  (KV store +  │  │ (raw binary │  │    (FUSE     │
+       │   WASM exec)  │  │    files)   │  │  filesystem) │
+       └──┬────────┬───┘  └─────────────┘  └──────────────┘
           │        │
    ┌──────┴──┐  ┌──┴──────────┐
    │wit-kv-  │  │ wit-kv-     │
@@ -38,9 +39,10 @@ The project brings the type safety of the WebAssembly Component Model to storage
    └─────────┘  └─────────────┘
 ```
 
-- **wit-core** is the encoding engine and type resolution layer, shared by both `wit-kv` and `wit-file`
+- **wit-core** is the encoding engine and type resolution layer, shared by `wit-kv`, `wit-file`, and `wit-fs`
 - **wit-kv** adds the persistent KV store (fjall) and WASM execution (wasmtime)
 - **wit-file** is a lightweight CLI that only needs `wit-core` for raw file I/O
+- **wit-fs** is a FUSE filesystem that exposes WIT-typed files with WAVE text and binary views
 - **wit-ast** is independent — a WASM component for in-browser WIT parsing
 
 ---
@@ -225,13 +227,11 @@ wit-kv/
 │   ├── wit-kv-cli/         # CLI binary
 │   ├── wit-kv-server/      # HTTP server binary
 │   ├── wit-file/           # Raw binary file CLI
+│   ├── wit-fs/             # FUSE filesystem
 │   └── wit-ast/            # Standalone WASM component for WIT parsing
 ├── client/                 # TypeScript client
 ├── playground/             # Interactive web UI
-├── examples/               # Map/reduce example components
-├── tests/                  # Integration test fixtures
-│   └── wit-file/           # wit-file smoke test WIT definitions
-└── kv.wit                  # Storage format types
+└── examples/               # Map/reduce example components
 ```
 
 ## License

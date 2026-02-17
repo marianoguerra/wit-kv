@@ -7,7 +7,6 @@ exclude = [
     "examples/point-filter",
     "examples/point-to-magnitude",
     "examples/sum-scores",
-    "examples/witast-decoder",
 ]
 
 [workspace.package]
