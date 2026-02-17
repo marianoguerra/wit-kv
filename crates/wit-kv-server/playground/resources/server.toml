@@ -2,7 +2,7 @@
 [server]
 bind = "127.0.0.1"
 port = 8080
-static_path = "./playground/dist"
+static_path = "./crates/wit-kv-server/playground/dist"
 
 [[databases]]
 name = "default"

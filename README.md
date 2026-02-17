@@ -224,14 +224,14 @@ wit-kv/
 ├── crates/
 │   ├── wit-core/           # Canonical ABI, type resolution + WAVE helpers
 │   ├── wit-kv/             # KV store library (fjall + wasmtime)
+│   │   └── examples/       # Map/reduce example WASM components
 │   ├── wit-kv-cli/         # CLI binary
 │   ├── wit-kv-server/      # HTTP server binary
+│   │   ├── client/         # TypeScript client
+│   │   └── playground/     # Interactive web UI
 │   ├── wit-file/           # Raw binary file CLI
 │   ├── wit-fs/             # FUSE filesystem
 │   └── wit-ast/            # Standalone WASM component for WIT parsing
-├── client/                 # TypeScript client
-├── playground/             # Interactive web UI
-└── examples/               # Map/reduce example components
 ```
 
 ## License

@@ -1,6 +1,9 @@
 # wit-kv justfile
 # Run tasks with: just <target>
 
+mod kv 'crates/wit-kv/justfile'
+mod server 'crates/wit-kv-server/justfile'
+
 # Default target
 default: build
 
@@ -24,10 +27,6 @@ build-wit-fs:
 build-server:
     cargo build --release -p wit-kv-server
 
-# Build the TypeScript client and UI
-build-client:
-    cd client && npm install && npm run build
-
 # Verify required external tools are installed
 check-tools:
     #!/usr/bin/env bash
@@ -46,7 +45,7 @@ check-tools:
     fi
 
 # Build everything: binaries, client, examples, and playground
-build-all: check-tools build build-client build-examples build-playground
+build-all: check-tools build build-wit-ast-js kv::build-examples server::build-playground
 
 # Create a self-contained distribution of the entire project
 dist: build-all
@@ -62,17 +61,17 @@ dist: build-all
     cp target/release/wit-fs dist/
 
     # Web UIs
-    cp -r client/dist dist/ui
-    cp -r playground/dist dist/playground
+    cp -r crates/wit-kv-server/client/dist dist/ui
+    cp -r crates/wit-kv-server/playground/dist dist/playground
 
     # Examples (wasm + wit + src)
     for example in point-filter person-filter sum-scores point-to-magnitude; do
         mkdir -p dist/examples/$example/{wit,src}
-        cp examples/$example/wit/*.wit dist/examples/$example/wit/
-        cp examples/$example/src/*.rs dist/examples/$example/src/
+        cp crates/wit-kv/examples/$example/wit/*.wit dist/examples/$example/wit/
+        cp crates/wit-kv/examples/$example/src/*.rs dist/examples/$example/src/
         # Copy the built wasm component (underscored name)
         wasm_name=$(echo "$example" | tr '-' '_')
-        cp examples/$example/target/wasm32-unknown-unknown/release/${wasm_name}.wasm \
+        cp crates/wit-kv/examples/$example/target/wasm32-unknown-unknown/release/${wasm_name}.wasm \
             dist/examples/$example/
     done
 
@@ -141,87 +140,8 @@ build-wit-ast:
 build-wit-ast-js: build-wit-ast
     cd crates/wit-ast/bindings/js && npm install && npm run build
 
-# Build the playground (requires wit-ast JS bindings and example components)
-build-playground: build-wit-ast-js build-client build-examples
-    #!/usr/bin/env bash
-    set -e
-    # Copy wit-ast bindings to src/lib for proper ES module handling
-    mkdir -p playground/src/lib/witast
-    cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
-    # Patch witast.js to remove Node.js code (browser-only)
-    sed 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js > playground/src/lib/witast/witast.js.tmp && mv playground/src/lib/witast/witast.js.tmp playground/src/lib/witast/witast.js
-    # Copy example WASM components to public/wasm
-    mkdir -p playground/public/wasm
-    cp examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
-    cp examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
-    cp examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
-    cp examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
-    # Build playground
-    cd playground && npm install && npm run build
-
-# Run playground with the server (production mode)
-playground clean="true": build-server build-playground
-    #!/usr/bin/env bash
-    set -e
-    if [ "{{clean}}" = "true" ]; then
-        echo "Cleaning playground data..."
-        rm -rf .wit-kv-playground
-    fi
-    echo "Starting wit-kv-server with playground UI..."
-    echo "Open http://localhost:8080 in your browser"
-    ./target/release/wit-kv-server --config playground/resources/server.toml
-
-# Run playground in development mode (with Vite HMR)
-playground-dev clean="true": build-server build-wit-ast-js build-examples
-    #!/usr/bin/env bash
-    set -e
-    # Copy wit-ast bindings to src/lib for proper ES module handling
-    mkdir -p playground/src/lib/witast
-    cp -r crates/wit-ast/bindings/js/dist/* playground/src/lib/witast/
-    # Patch witast.js to remove Node.js code (browser-only)
-    sed 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js > playground/src/lib/witast/witast.js.tmp && mv playground/src/lib/witast/witast.js.tmp playground/src/lib/witast/witast.js
-    # Copy example WASM components to public/wasm
-    mkdir -p playground/public/wasm
-    cp examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
-    cp examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
-    cp examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
-    cp examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
-    # Install deps (use subshell to preserve cwd)
-    (cd playground && npm install)
-    # Clean playground data if requested
-    if [ "{{clean}}" = "true" ]; then
-        echo "Cleaning playground data..."
-        rm -rf .wit-kv-playground
-    fi
-    # Start server in background
-    echo "Starting wit-kv-server on port 8080..."
-    ./target/release/wit-kv-server --config playground/resources/server-dev.toml &
-    SERVER_PID=$!
-    trap "kill $SERVER_PID 2>/dev/null" EXIT
-    echo "Starting Vite dev server..."
-    cd playground && npm run dev
-
-# Build all example wasm components
-build-examples: build-point-filter build-person-filter build-sum-scores build-point-to-magnitude
-
-# Build point-filter component (uses cargo-component)
-build-point-filter:
-    cd examples/point-filter && cargo component build --release --target wasm32-unknown-unknown
-
-# Build person-filter component (uses cargo-component)
-build-person-filter:
-    cd examples/person-filter && cargo component build --release --target wasm32-unknown-unknown
-
-# Build sum-scores component (uses cargo-component)
-build-sum-scores:
-    cd examples/sum-scores && cargo component build --release --target wasm32-unknown-unknown
-
-# Build point-to-magnitude component (uses cargo-component)
-build-point-to-magnitude:
-    cd examples/point-to-magnitude && cargo component build --release --target wasm32-unknown-unknown
-
 # Run all tests
-test: test-errors smoke-test-wit-file smoke-test-wit-fs smoke-test
+test: test-errors smoke-test-wit-file smoke-test-wit-fs smoke-test-wit-http smoke-test
 
 # Lint all projects (Rust clippy + TypeScript type-checking)
 lint:
@@ -233,15 +153,7 @@ lint:
     echo ">>> Clippy: wit-ast..."
     (cd crates/wit-ast && cargo clippy -- -D warnings)
     echo ""
-    echo ">>> TypeScript: client..."
-    (cd client && npm install --silent && npx tsc)
-    echo ""
-    echo ">>> TypeScript: playground..."
-    if [ -d playground/src/lib/witast ]; then
-        (cd playground && npm install --silent && npx tsc --noEmit)
-    else
-        echo "  Skipped (witast bindings not built). Run 'just build-wit-ast-js' first."
-    fi
+    just server::lint-ts
     echo ""
     echo "All lint checks passed."
 
@@ -257,12 +169,17 @@ test-errors: build
 smoke-test-wit-file: build
     ./crates/wit-file/scripts/smoke-test.sh release
 
+# Run wit-http smoke tests (REST API CRUD with user_store example)
+smoke-test-wit-http: build
+    cargo build --example user_store -p wit-http --release
+    ./crates/wit-http/scripts/smoke-test.sh release
+
 # Run wit-fs smoke tests (mount, write, read, validate, error handling)
 smoke-test-wit-fs: build
     ./crates/wit-fs/scripts/smoke-test.sh release
 
 # Run all smoke tests (usage example + map/reduce examples + unit tests)
-smoke-test: build build-examples
+smoke-test: build kv::build-examples
     #!/usr/bin/env bash
     set -e
     echo "========================================"
@@ -282,7 +199,7 @@ smoke-test: build build-examples
     rm -rf /tmp/smoke-test-kv
     mkdir -p /tmp/smoke-test-kv
     ./target/release/wit-kv init --path /tmp/smoke-test-kv
-    ./target/release/wit-kv set-type users --wit examples/sum-scores/wit/reduce.wit --type-name person --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set-type users --wit crates/wit-kv/examples/sum-scores/wit/reduce.wit --type-name person --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users alice --value "{age: 30, score: 100}" --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users bob --value "{age: 25, score: 85}" --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users charlie --value "{age: 35, score: 120}" --path /tmp/smoke-test-kv
@@ -290,7 +207,7 @@ smoke-test: build build-examples
 
     echo ">>> Setting up points keyspace for point-filter..."
     ./target/release/wit-kv set-type points \
-        --wit examples/point-filter/wit/map.wit \
+        --wit crates/wit-kv/examples/point-filter/wit/map.wit \
         --type-name point \
         --path /tmp/smoke-test-kv
     ./target/release/wit-kv set points p1 --value "{x: 10, y: 20}" --path /tmp/smoke-test-kv
@@ -301,8 +218,8 @@ smoke-test: build build-examples
 
     echo ">>> Testing map with point-filter..."
     OUTPUT=$(./target/release/wit-kv map points \
-        --module ./examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
-        --module-wit ./examples/point-filter/wit/map.wit \
+        --module ./crates/wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
+        --module-wit ./crates/wit-kv/examples/point-filter/wit/map.wit \
         --input-type point \
         --path /tmp/smoke-test-kv 2>&1)
     echo "$OUTPUT"
@@ -318,8 +235,8 @@ smoke-test: build build-examples
     echo ">>> Testing map with person-filter..."
     # Reuse the users keyspace (already has person type compatible data)
     OUTPUT=$(./target/release/wit-kv map users \
-        --module ./examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm \
-        --module-wit ./examples/person-filter/wit/map.wit \
+        --module ./crates/wit-kv/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm \
+        --module-wit ./crates/wit-kv/examples/person-filter/wit/map.wit \
         --input-type person \
         --path /tmp/smoke-test-kv 2>&1)
     echo "$OUTPUT"
@@ -334,8 +251,8 @@ smoke-test: build build-examples
 
     echo ">>> Testing reduce with sum-scores..."
     OUTPUT=$(./target/release/wit-kv reduce users \
-        --module ./examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
-        --module-wit ./examples/sum-scores/wit/reduce.wit \
+        --module ./crates/wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
+        --module-wit ./crates/wit-kv/examples/sum-scores/wit/reduce.wit \
         --input-type person \
         --state-type total \
         --path /tmp/smoke-test-kv 2>&1)
@@ -351,8 +268,8 @@ smoke-test: build build-examples
 
     echo ">>> Testing map with point-to-magnitude (T -> T1 transformation)..."
     OUTPUT=$(./target/release/wit-kv map points \
-        --module ./examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
-        --module-wit ./examples/point-to-magnitude/wit/map.wit \
+        --module ./crates/wit-kv/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
+        --module-wit ./crates/wit-kv/examples/point-to-magnitude/wit/map.wit \
         --input-type point \
         --output-type magnitude \
         --path /tmp/smoke-test-kv 2>&1)
@@ -372,7 +289,7 @@ smoke-test: build build-examples
     echo "========================================"
 
 # Check outdated dependencies for all projects
-check-outdated: check-outdated-root check-outdated-wit-ast check-outdated-point-filter check-outdated-person-filter check-outdated-sum-scores check-outdated-point-to-magnitude
+check-outdated: check-outdated-root check-outdated-wit-ast kv::check-outdated-examples
 
 # Check outdated dependencies for root project
 check-outdated-root:
@@ -382,44 +299,19 @@ check-outdated-root:
 check-outdated-wit-ast:
     cd crates/wit-ast && cargo outdated -R
 
-# Check outdated dependencies for point-filter example
-check-outdated-point-filter:
-    cd examples/point-filter && cargo outdated -R
-
-# Check outdated dependencies for person-filter example
-check-outdated-person-filter:
-    cd examples/person-filter && cargo outdated -R
-
-# Check outdated dependencies for sum-scores example
-check-outdated-sum-scores:
-    cd examples/sum-scores && cargo outdated -R
-
-# Check outdated dependencies for point-to-magnitude example
-check-outdated-point-to-magnitude:
-    cd examples/point-to-magnitude && cargo outdated -R
-
 # Clean build artifacts
-clean:
+clean: kv::clean-examples server::clean-web
     cargo clean
     rm -rf dist
-    rm -rf client/dist
-    rm -rf playground/dist
-    rm -rf playground/src/lib/witast
-    rm -rf playground/node_modules
     rm -rf crates/wit-ast/target
-    rm -rf examples/point-filter/target
-    rm -rf examples/person-filter/target
-    rm -rf examples/sum-scores/target
-    rm -rf examples/point-to-magnitude/target
 
 # Deep clean: remove ALL build artifacts (as close to fresh checkout as possible)
 clean-all: clean
-    rm -rf client/node_modules
     rm -rf crates/wit-ast/bindings/js/node_modules
     rm -rf crates/wit-ast/bindings/js/dist
 
 # Run the server with UI (for development)
-serve: build-server build-client
+serve: build-server server::build-client
     #!/usr/bin/env bash
     set -e
     # Create temp config if not exists
@@ -428,7 +320,7 @@ serve: build-server build-client
     [server]
     bind = "127.0.0.1"
     port = 8080
-    static_path = "./client/dist"
+    static_path = "./crates/wit-kv-server/client/dist"
 
     [cors]
     enabled = true

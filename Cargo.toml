@@ -3,10 +3,10 @@ resolver = "2"
 members = ["crates/*"]
 exclude = [
     "crates/wit-ast",
-    "examples/person-filter",
-    "examples/point-filter",
-    "examples/point-to-magnitude",
-    "examples/sum-scores",
+    "crates/wit-kv/examples/person-filter",
+    "crates/wit-kv/examples/point-filter",
+    "crates/wit-kv/examples/point-to-magnitude",
+    "crates/wit-kv/examples/sum-scores",
 ]
 
 [workspace.package]
@@ -19,6 +19,7 @@ categories = ["wasm", "encoding", "database"]
 [workspace.dependencies]
 # Internal crates
 wit-core = { path = "crates/wit-core" }
+wit-http = { path = "crates/wit-http" }
 wit-kv = { path = "crates/wit-kv" }
 
 # Core dependencies (always needed)

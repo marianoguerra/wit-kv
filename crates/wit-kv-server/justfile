@@ -1,0 +1,92 @@
+# wit-kv-server crate justfile
+# Targets for client, playground, and TypeScript tooling
+
+# Build the TypeScript client
+build-client:
+    cd client && npm install && npm run build
+
+# Build the playground (requires wit-ast JS bindings and example components to be pre-built)
+build-playground: build-client
+    #!/usr/bin/env bash
+    set -e
+    # Copy wit-ast bindings to src/lib for proper ES module handling
+    mkdir -p playground/src/lib/witast
+    cp -r ../wit-ast/bindings/js/dist/* playground/src/lib/witast/
+    # Patch witast.js to remove Node.js code (browser-only)
+    sed 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js > playground/src/lib/witast/witast.js.tmp && mv playground/src/lib/witast/witast.js.tmp playground/src/lib/witast/witast.js
+    # Copy example WASM components to public/wasm
+    mkdir -p playground/public/wasm
+    cp ../wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
+    cp ../wit-kv/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
+    cp ../wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
+    cp ../wit-kv/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
+    # Build playground
+    cd playground && npm install && npm run build
+
+# Run playground with the server (production mode)
+playground clean="true": build-playground
+    #!/usr/bin/env bash
+    set -e
+    # Build server
+    cargo build --release -p wit-kv-server --manifest-path ../../Cargo.toml
+    if [ "{{clean}}" = "true" ]; then
+        echo "Cleaning playground data..."
+        rm -rf ../../.wit-kv-playground
+    fi
+    echo "Starting wit-kv-server with playground UI..."
+    echo "Open http://localhost:8080 in your browser"
+    cd ../.. && ./target/release/wit-kv-server --config crates/wit-kv-server/playground/resources/server.toml
+
+# Run playground in development mode (with Vite HMR)
+playground-dev clean="true":
+    #!/usr/bin/env bash
+    set -e
+    # Build server
+    cargo build --release -p wit-kv-server --manifest-path ../../Cargo.toml
+    # Copy wit-ast bindings to src/lib for proper ES module handling
+    mkdir -p playground/src/lib/witast
+    cp -r ../wit-ast/bindings/js/dist/* playground/src/lib/witast/
+    # Patch witast.js to remove Node.js code (browser-only)
+    sed 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js > playground/src/lib/witast/witast.js.tmp && mv playground/src/lib/witast/witast.js.tmp playground/src/lib/witast/witast.js
+    # Copy example WASM components to public/wasm
+    mkdir -p playground/public/wasm
+    cp ../wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
+    cp ../wit-kv/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
+    cp ../wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
+    cp ../wit-kv/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
+    # Install deps (use subshell to preserve cwd)
+    (cd playground && npm install)
+    # Clean playground data if requested
+    if [ "{{clean}}" = "true" ]; then
+        echo "Cleaning playground data..."
+        rm -rf ../../.wit-kv-playground
+    fi
+    # Start server in background (run from workspace root for correct config paths)
+    echo "Starting wit-kv-server on port 8080..."
+    (cd ../.. && ./target/release/wit-kv-server --config crates/wit-kv-server/playground/resources/server-dev.toml) &
+    SERVER_PID=$!
+    trap "kill $SERVER_PID 2>/dev/null" EXIT
+    echo "Starting Vite dev server..."
+    cd playground && npm run dev
+
+# Lint TypeScript projects (client + playground)
+lint-ts:
+    #!/usr/bin/env bash
+    set -e
+    echo ">>> TypeScript: client..."
+    (cd client && npm install --silent && npx tsc)
+    echo ""
+    echo ">>> TypeScript: playground..."
+    if [ -d playground/src/lib/witast ]; then
+        (cd playground && npm install --silent && npx tsc --noEmit)
+    else
+        echo "  Skipped (witast bindings not built). Run 'just build-wit-ast-js' first."
+    fi
+
+# Clean web build artifacts
+clean-web:
+    rm -rf client/dist
+    rm -rf client/node_modules
+    rm -rf playground/dist
+    rm -rf playground/src/lib/witast
+    rm -rf playground/node_modules

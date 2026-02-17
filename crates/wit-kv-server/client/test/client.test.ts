@@ -9,14 +9,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Path to example WASM modules (relative to project root)
-const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const PROJECT_ROOT = path.resolve(__dirname, '../../../..');
 const POINT_FILTER_WASM = path.join(
   PROJECT_ROOT,
-  'examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm'
+  'crates/wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm'
 );
 const SUM_SCORES_WASM = path.join(
   PROJECT_ROOT,
-  'examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm'
+  'crates/wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm'
 );
 
 const BASE_URL = process.env.WIT_KV_URL ?? 'http://localhost:8080';
