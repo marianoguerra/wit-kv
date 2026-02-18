@@ -45,7 +45,7 @@ impl std::error::Error for ParseVersionError {}
 /// // Display
 /// println!("Version: {}", v); // "1.2.3"
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SemanticVersion {
     pub major: u32,
     pub minor: u32,

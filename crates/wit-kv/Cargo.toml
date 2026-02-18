@@ -17,6 +17,7 @@ logging = ["dep:tracing"]
 
 [dependencies]
 wit-core.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 wit-parser.workspace = true
 wasm-wave.workspace = true

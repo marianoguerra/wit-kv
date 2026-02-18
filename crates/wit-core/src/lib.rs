@@ -22,6 +22,7 @@
 
 pub mod abi;
 mod error;
+pub mod serde;
 
 pub use error::{Error, Result};
 
@@ -151,16 +152,12 @@ pub fn load_wit_type_from_string(
     })
 }
 
-/// Encode WAVE text to canonical ABI binary.
-pub fn wave_to_binary(wave_text: &str, resolved: &ResolvedType) -> Result<Vec<u8>> {
-    let wave_text = wave_text.trim();
-    let value = wave_from_str(&resolved.wave_type, wave_text)
-        .map_err(|e| Error::WaveParse(e.to_string()))?;
-
+/// Encode a `Value` directly to canonical ABI binary (no WAVE text intermediate).
+pub fn value_to_binary(value: &Value, resolved: &ResolvedType) -> Result<Vec<u8>> {
     let abi = CanonicalAbi::new(&resolved.resolve);
     let ty = Type::Id(resolved.type_id);
     let mut memory = LinearMemory::new();
-    let buffer = abi.lower_with_memory(&value, &ty, &resolved.wave_type, &mut memory)?;
+    let buffer = abi.lower_with_memory(value, &ty, &resolved.wave_type, &mut memory)?;
 
     let memory_bytes = memory.into_bytes();
     let mut result = buffer;
@@ -170,8 +167,8 @@ pub fn wave_to_binary(wave_text: &str, resolved: &ResolvedType) -> Result<Vec<u8
     Ok(result)
 }
 
-/// Decode canonical ABI binary to WAVE text.
-pub fn binary_to_wave(binary: &[u8], resolved: &ResolvedType) -> Result<String> {
+/// Decode canonical ABI binary directly to a `Value` (no WAVE text intermediate).
+pub fn binary_to_value(binary: &[u8], resolved: &ResolvedType) -> Result<Value> {
     let abi = CanonicalAbi::new(&resolved.resolve);
     let ty = Type::Id(resolved.type_id);
     let flat_size = abi.flat_size(&ty);
@@ -191,5 +188,19 @@ pub fn binary_to_wave(binary: &[u8], resolved: &ResolvedType) -> Result<String> 
     };
 
     let (value, _) = abi.lift_with_memory(buffer, &ty, &resolved.wave_type, &memory)?;
+    Ok(value)
+}
+
+/// Encode WAVE text to canonical ABI binary.
+pub fn wave_to_binary(wave_text: &str, resolved: &ResolvedType) -> Result<Vec<u8>> {
+    let wave_text = wave_text.trim();
+    let value = wave_from_str(&resolved.wave_type, wave_text)
+        .map_err(|e| Error::WaveParse(e.to_string()))?;
+    value_to_binary(&value, resolved)
+}
+
+/// Decode canonical ABI binary to WAVE text.
+pub fn binary_to_wave(binary: &[u8], resolved: &ResolvedType) -> Result<String> {
+    let value = binary_to_value(binary, resolved)?;
     wave_to_string(&value).map_err(|e| Error::WaveParse(e.to_string()))
 }

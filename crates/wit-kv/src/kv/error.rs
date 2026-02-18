@@ -42,6 +42,9 @@ pub enum KvError {
     #[error("WAVE parsing error: {0}")]
     WaveParse(String),
 
+    #[error("WIT serde error: {0}")]
+    WitSerde(#[from] wit_core::serde::WitSerdeError),
+
     #[error("Type not found in WIT: {0}")]
     TypeNotFound(String),
 

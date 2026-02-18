@@ -4,7 +4,8 @@ use super::version::SemanticVersion;
 
 /// Stored value envelope - wraps the actual value with metadata.
 /// This structure mirrors the `stored-value` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct StoredValue {
     /// Format version for future compatibility.
     /// Used for migration if the envelope structure changes.
@@ -39,7 +40,8 @@ impl StoredValue {
 
 /// Keyspace type metadata.
 /// This structure mirrors the `keyspace-metadata` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct KeyspaceMetadata {
     /// User-visible keyspace name
     pub name: String,

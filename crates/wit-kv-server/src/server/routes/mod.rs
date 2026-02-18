@@ -66,7 +66,12 @@ pub async fn list_databases(
     info!(count, "listed databases");
 
     match format {
-        ContentFormat::Wave => Ok(FormatResponse::wave(db_list.to_wave()).into_response()),
+        ContentFormat::Wave => {
+            let wave = db_list
+                .to_wave()
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            Ok(FormatResponse::wave(wave).into_response())
+        }
         ContentFormat::Binary => {
             let (buffer, memory) = db_list
                 .encode()

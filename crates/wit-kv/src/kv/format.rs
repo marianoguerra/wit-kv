@@ -1,20 +1,19 @@
 //! WIT-based binary format encoding and decoding.
 //!
 //! This module uses the canonical ABI to encode/decode StoredValue and KeyspaceMetadata
-//! structures using the WIT types defined in kv.wit.
+//! structures using the WIT types defined in kv.wit. Serde derives on each struct
+//! (with `rename_all = "kebab-case"` where needed) replace manual `Value` construction
+//! via `wit_core::serde::{to_value, from_value}`.
 
-use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use wasm_wave::value::{Type as WaveType, Value, resolve_wit_type};
-use wasm_wave::wasm::{WasmType, WasmValue};
+use wasm_wave::value::{Type as WaveType, resolve_wit_type};
 use wit_parser::{Resolve, Type, TypeId};
 
 use crate::{CanonicalAbi, LinearMemory, find_type_by_name};
 
 use super::error::KvError;
 use super::types::{KeyspaceMetadata, StoredValue};
-use super::version::SemanticVersion;
 
 /// Helper to find a type by name and return an error if not found.
 fn require_type(resolve: &Resolve, name: &str) -> Result<TypeId, KvError> {
@@ -34,14 +33,12 @@ struct KvTypes {
     binary_export_id: TypeId,
     key_list_id: TypeId,
     keyspace_list_id: TypeId,
-    _database_info_id: TypeId,
     database_list_id: TypeId,
     stored_value_wave_type: WaveType,
     keyspace_metadata_wave_type: WaveType,
     binary_export_wave_type: WaveType,
     key_list_wave_type: WaveType,
     keyspace_list_wave_type: WaveType,
-    database_info_wave_type: WaveType,
     database_list_wave_type: WaveType,
 }
 
@@ -62,7 +59,6 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
     let binary_export_id = require_type(&resolve, "binary-export")?;
     let key_list_id = require_type(&resolve, "key-list")?;
     let keyspace_list_id = require_type(&resolve, "keyspace-list")?;
-    let database_info_id = require_type(&resolve, "database-info")?;
     let database_list_id = require_type(&resolve, "database-list")?;
 
     // Resolve wave types
@@ -71,7 +67,6 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
     let binary_export_wave_type = require_wave_type(&resolve, binary_export_id)?;
     let key_list_wave_type = require_wave_type(&resolve, key_list_id)?;
     let keyspace_list_wave_type = require_wave_type(&resolve, keyspace_list_id)?;
-    let database_info_wave_type = require_wave_type(&resolve, database_info_id)?;
     let database_list_wave_type = require_wave_type(&resolve, database_list_id)?;
 
     Ok(KvTypes {
@@ -81,66 +76,14 @@ fn load_kv_types() -> Result<KvTypes, KvError> {
         binary_export_id,
         key_list_id,
         keyspace_list_id,
-        _database_info_id: database_info_id,
         database_list_id,
         stored_value_wave_type,
         keyspace_metadata_wave_type,
         binary_export_wave_type,
         key_list_wave_type,
         keyspace_list_wave_type,
-        database_info_wave_type,
         database_list_wave_type,
     })
-}
-
-/// Helper to get a record field type by name
-fn get_field_type(wave_type: &WaveType, field_name: &str) -> Option<WaveType> {
-    wave_type
-        .record_fields()
-        .find(|(name, _)| name.as_ref() == field_name)
-        .map(|(_, ty)| ty)
-}
-
-/// Type alias for record fields extracted from a Value
-type RecordFields<'a> = Vec<(Cow<'a, str>, Cow<'a, Value>)>;
-
-/// Helper to get a field value from extracted record fields
-fn get_field<'a>(fields: &'a RecordFields<'_>, name: &str) -> Result<&'a Value, KvError> {
-    fields
-        .iter()
-        .find(|(n, _)| n.as_ref() == name)
-        .map(|(_, v)| v.as_ref())
-        .ok_or_else(|| KvError::InvalidFormat(format!("Missing {} field", name)))
-}
-
-/// Helper to create a semantic-version WAVE value
-fn make_semantic_version(
-    version: &SemanticVersion,
-    parent_type: &WaveType,
-) -> Result<Value, KvError> {
-    let version_type = get_field_type(parent_type, "type-version")
-        .ok_or_else(|| KvError::InvalidFormat("Missing type-version field type".to_string()))?;
-
-    Value::make_record(
-        &version_type,
-        vec![
-            ("major", Value::make_u32(version.major)),
-            ("minor", Value::make_u32(version.minor)),
-            ("patch", Value::make_u32(version.patch)),
-        ],
-    )
-    .map_err(|e| KvError::WaveParse(e.to_string()))
-}
-
-/// Helper to extract a SemanticVersion from a WAVE record value
-fn extract_semantic_version(value: &Value) -> Result<SemanticVersion, KvError> {
-    let fields: RecordFields<'_> = value.unwrap_record().collect();
-
-    let major = get_field(&fields, "major")?.unwrap_u32();
-    let minor = get_field(&fields, "minor")?.unwrap_u32();
-    let patch = get_field(&fields, "patch")?.unwrap_u32();
-
-    Ok(SemanticVersion::new(major, minor, patch))
 }
 
 impl StoredValue {
@@ -149,8 +92,7 @@ impl StoredValue {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
 
-        // Build WAVE value for stored-value record
-        let wave_value = self.to_wave_value(&kv.stored_value_wave_type)?;
+        let wave_value = wit_core::serde::to_value(self, &kv.stored_value_wave_type)?;
 
         let mut memory = LinearMemory::new();
         let buffer = abi.lower_with_memory(
@@ -176,78 +118,7 @@ impl StoredValue {
             &mem,
         )?;
 
-        Self::from_wave_value(&value)
-    }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        // Get field types from the record type
-        let value_field_type = get_field_type(wave_type, "value")
-            .ok_or_else(|| KvError::InvalidFormat("Missing value field type".to_string()))?;
-
-        let memory_field_type = get_field_type(wave_type, "memory")
-            .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
-
-        // Build the semantic-version record
-        let type_version_val = make_semantic_version(&self.type_version, wave_type)?;
-
-        // Build the list<u8> for value field (pass iterator directly to avoid intermediate Vec)
-        let value_val = Value::make_list(
-            &value_field_type,
-            self.value.iter().map(|&b| Value::make_u8(b)),
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-        // Build the option<list<u8>> for memory field
-        let memory_val = match &self.memory {
-            Some(mem) => {
-                // Get the inner list type from option<list<u8>>
-                let inner_list_type = memory_field_type.option_some_type().ok_or_else(|| {
-                    KvError::InvalidFormat("Expected option type for memory".to_string())
-                })?;
-
-                let mem_list_val =
-                    Value::make_list(&inner_list_type, mem.iter().map(|&b| Value::make_u8(b)))
-                        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-                Value::make_option(&memory_field_type, Some(mem_list_val))
-                    .map_err(|e| KvError::WaveParse(e.to_string()))?
-            }
-            None => Value::make_option(&memory_field_type, None)
-                .map_err(|e| KvError::WaveParse(e.to_string()))?,
-        };
-
-        // Build the record
-        Value::make_record(
-            wave_type,
-            vec![
-                ("version", Value::make_u8(self.version)),
-                ("type-version", type_version_val),
-                ("value", value_val),
-                ("memory", memory_val),
-            ],
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))
-    }
-
-    fn from_wave_value(value: &Value) -> Result<Self, KvError> {
-        let fields: RecordFields<'_> = value.unwrap_record().collect();
-
-        let version = get_field(&fields, "version")?.unwrap_u8();
-        let type_version = extract_semantic_version(get_field(&fields, "type-version")?)?;
-        let value_bytes: Vec<u8> = get_field(&fields, "value")?
-            .unwrap_list()
-            .map(|e| e.unwrap_u8())
-            .collect();
-        let memory = get_field(&fields, "memory")?
-            .unwrap_option()
-            .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect());
-
-        Ok(StoredValue {
-            version,
-            type_version,
-            value: value_bytes,
-            memory,
-        })
+        Ok(wit_core::serde::from_value(&value)?)
     }
 }
 
@@ -257,7 +128,7 @@ impl KeyspaceMetadata {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
 
-        let wave_value = self.to_wave_value(&kv.keyspace_metadata_wave_type)?;
+        let wave_value = wit_core::serde::to_value(self, &kv.keyspace_metadata_wave_type)?;
 
         let mut memory = LinearMemory::new();
         let buffer = abi.lower_with_memory(
@@ -283,69 +154,16 @@ impl KeyspaceMetadata {
             &mem,
         )?;
 
-        Self::from_wave_value(&value)
-    }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        // Build the semantic-version record
-        let type_version_val = make_semantic_version(&self.type_version, wave_type)?;
-
-        Value::make_record(
-            wave_type,
-            vec![
-                ("name", Value::make_string(Cow::Borrowed(&self.name))),
-                (
-                    "qualified-name",
-                    Value::make_string(Cow::Borrowed(&self.qualified_name)),
-                ),
-                (
-                    "wit-definition",
-                    Value::make_string(Cow::Borrowed(&self.wit_definition)),
-                ),
-                (
-                    "type-name",
-                    Value::make_string(Cow::Borrowed(&self.type_name)),
-                ),
-                ("type-version", type_version_val),
-                ("type-hash", Value::make_u32(self.type_hash)),
-                ("created-at", Value::make_u64(self.created_at)),
-            ],
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))
-    }
-
-    fn from_wave_value(value: &Value) -> Result<Self, KvError> {
-        let fields: RecordFields<'_> = value.unwrap_record().collect();
-
-        let name = get_field(&fields, "name")?.unwrap_string().to_string();
-        let qualified_name = get_field(&fields, "qualified-name")?
-            .unwrap_string()
-            .to_string();
-        let wit_definition = get_field(&fields, "wit-definition")?
-            .unwrap_string()
-            .to_string();
-        let type_name = get_field(&fields, "type-name")?.unwrap_string().to_string();
-        let type_version = extract_semantic_version(get_field(&fields, "type-version")?)?;
-        let type_hash = get_field(&fields, "type-hash")?.unwrap_u32();
-        let created_at = get_field(&fields, "created-at")?.unwrap_u64();
-
-        Ok(KeyspaceMetadata {
-            name,
-            qualified_name,
-            wit_definition,
-            type_name,
-            type_version,
-            type_hash,
-            created_at,
-        })
+        Ok(wit_core::serde::from_value(&value)?)
     }
 }
 
 /// Binary export wrapper for transferring complete values with memory.
 /// This mirrors the `binary-export` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BinaryExport {
     /// Canonical ABI encoded value buffer
+    #[serde(rename = "value")]
     pub buffer: Vec<u8>,
     /// Linear memory bytes (for variable-length types)
     pub memory: Option<Vec<u8>>,
@@ -380,7 +198,7 @@ impl BinaryExport {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
 
-        let wave_value = self.to_wave_value(&kv.binary_export_wave_type)?;
+        let wave_value = wit_core::serde::to_value(self, &kv.binary_export_wave_type)?;
 
         let mut memory = LinearMemory::new();
         let buffer = abi.lower_with_memory(
@@ -420,66 +238,13 @@ impl BinaryExport {
             &mem,
         )?;
 
-        Self::from_wave_value(&value)
-    }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        let buffer_field_type = get_field_type(wave_type, "value")
-            .ok_or_else(|| KvError::InvalidFormat("Missing value field type".to_string()))?;
-
-        let memory_field_type = get_field_type(wave_type, "memory")
-            .ok_or_else(|| KvError::InvalidFormat("Missing memory field type".to_string()))?;
-
-        // Build the list<u8> for buffer field (pass iterator directly to avoid intermediate Vec)
-        let buffer_val = Value::make_list(
-            &buffer_field_type,
-            self.buffer.iter().map(|&b| Value::make_u8(b)),
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-        // Build the option<list<u8>> for memory field
-        let memory_val = match &self.memory {
-            Some(mem) => {
-                let inner_list_type = memory_field_type.option_some_type().ok_or_else(|| {
-                    KvError::InvalidFormat("Expected option type for memory".to_string())
-                })?;
-
-                let mem_list_val =
-                    Value::make_list(&inner_list_type, mem.iter().map(|&b| Value::make_u8(b)))
-                        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-                Value::make_option(&memory_field_type, Some(mem_list_val))
-                    .map_err(|e| KvError::WaveParse(e.to_string()))?
-            }
-            None => Value::make_option(&memory_field_type, None)
-                .map_err(|e| KvError::WaveParse(e.to_string()))?,
-        };
-
-        Value::make_record(
-            wave_type,
-            vec![("value", buffer_val), ("memory", memory_val)],
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))
-    }
-
-    fn from_wave_value(value: &Value) -> Result<Self, KvError> {
-        let fields: RecordFields<'_> = value.unwrap_record().collect();
-
-        let buffer: Vec<u8> = get_field(&fields, "value")?
-            .unwrap_list()
-            .map(|e| e.unwrap_u8())
-            .collect();
-        let memory = get_field(&fields, "memory")?
-            .unwrap_option()
-            .map(|inner| inner.unwrap_list().map(|e| e.unwrap_u8()).collect());
-
-        Ok(BinaryExport { buffer, memory })
+        Ok(wit_core::serde::from_value(&value)?)
     }
 }
 
 /// List of keys in a keyspace.
 /// This mirrors the `key-list` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyList {
     /// The keys in the keyspace
     pub keys: Vec<String>,
@@ -496,7 +261,7 @@ impl KeyList {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
 
-        let wave_value = self.to_wave_value(&kv.key_list_wave_type)?;
+        let wave_value = wit_core::serde::to_value(self, &kv.key_list_wave_type)?;
 
         let mut memory = LinearMemory::new();
         let buffer = abi.lower_with_memory(
@@ -510,40 +275,16 @@ impl KeyList {
     }
 
     /// Convert to WAVE text format.
-    pub fn to_wave(&self) -> String {
-        use std::fmt::Write;
-        let mut out = String::new();
-        out.push_str("{keys: [");
-        for (i, key) in self.keys.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write!(out, "\"{}\"", key.escape_default()).ok();
-        }
-        out.push_str("]}");
-        out
-    }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        let keys_field_type = get_field_type(wave_type, "keys")
-            .ok_or_else(|| KvError::InvalidFormat("Missing keys field type".to_string()))?;
-
-        let keys_val = Value::make_list(
-            &keys_field_type,
-            self.keys
-                .iter()
-                .map(|k| Value::make_string(Cow::Borrowed(k))),
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-        Value::make_record(wave_type, vec![("keys", keys_val)])
-            .map_err(|e| KvError::WaveParse(e.to_string()))
+    pub fn to_wave(&self) -> Result<String, KvError> {
+        let kv = &*KV_TYPES;
+        let value = wit_core::serde::to_value(self, &kv.key_list_wave_type)?;
+        wit_core::wave_to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))
     }
 }
 
 /// List of keyspaces (type registrations) in a database.
 /// This mirrors the `keyspace-list` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyspaceList {
     /// The keyspaces with their metadata
     pub keyspaces: Vec<KeyspaceMetadata>,
@@ -560,7 +301,7 @@ impl KeyspaceList {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
 
-        let wave_value = self.to_wave_value(&kv.keyspace_list_wave_type)?;
+        let wave_value = wit_core::serde::to_value(self, &kv.keyspace_list_wave_type)?;
 
         let mut memory = LinearMemory::new();
         let buffer = abi.lower_with_memory(
@@ -575,53 +316,15 @@ impl KeyspaceList {
 
     /// Convert to WAVE text format.
     pub fn to_wave(&self) -> Result<String, KvError> {
-        use std::fmt::Write;
-        let mut out = String::new();
-        out.push_str("{keyspaces: [");
-        for (i, ks) in self.keyspaces.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write!(
-                out,
-                "{{name: \"{}\", qualified-name: \"{}\", wit-definition: \"{}\", type-name: \"{}\", type-version: {{major: {}, minor: {}, patch: {}}}, type-hash: {}, created-at: {}}}",
-                ks.name.escape_default(),
-                ks.qualified_name.escape_default(),
-                ks.wit_definition.escape_default(),
-                ks.type_name.escape_default(),
-                ks.type_version.major,
-                ks.type_version.minor,
-                ks.type_version.patch,
-                ks.type_hash,
-                ks.created_at
-            ).ok();
-        }
-        out.push_str("]}");
-        Ok(out)
-    }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        let keyspaces_field_type = get_field_type(wave_type, "keyspaces")
-            .ok_or_else(|| KvError::InvalidFormat("Missing keyspaces field type".to_string()))?;
-
         let kv = &*KV_TYPES;
-        let keyspace_values: Result<Vec<_>, _> = self
-            .keyspaces
-            .iter()
-            .map(|ks| ks.to_wave_value(&kv.keyspace_metadata_wave_type))
-            .collect();
-
-        let keyspaces_val = Value::make_list(&keyspaces_field_type, keyspace_values?)
-            .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-        Value::make_record(wave_type, vec![("keyspaces", keyspaces_val)])
-            .map_err(|e| KvError::WaveParse(e.to_string()))
+        let value = wit_core::serde::to_value(self, &kv.keyspace_list_wave_type)?;
+        wit_core::wave_to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))
     }
 }
 
 /// Database information.
 /// This mirrors the `database-info` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DatabaseInfo {
     /// Database name
     pub name: String,
@@ -632,19 +335,11 @@ impl DatabaseInfo {
     pub fn new(name: String) -> Self {
         Self { name }
     }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        Value::make_record(
-            wave_type,
-            vec![("name", Value::make_string(Cow::Borrowed(&self.name)))],
-        )
-        .map_err(|e| KvError::WaveParse(e.to_string()))
-    }
 }
 
 /// List of databases.
 /// This mirrors the `database-list` WIT type in kv.wit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DatabaseList {
     /// The databases
     pub databases: Vec<DatabaseInfo>,
@@ -666,7 +361,7 @@ impl DatabaseList {
         let kv = &*KV_TYPES;
         let abi = CanonicalAbi::new(&kv.resolve);
 
-        let wave_value = self.to_wave_value(&kv.database_list_wave_type)?;
+        let wave_value = wit_core::serde::to_value(self, &kv.database_list_wave_type)?;
 
         let mut memory = LinearMemory::new();
         let buffer = abi.lower_with_memory(
@@ -680,36 +375,10 @@ impl DatabaseList {
     }
 
     /// Convert to WAVE text format.
-    pub fn to_wave(&self) -> String {
-        use std::fmt::Write;
-        let mut out = String::new();
-        out.push_str("{databases: [");
-        for (i, db) in self.databases.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write!(out, "{{name: \"{}\"}}", db.name.escape_default()).ok();
-        }
-        out.push_str("]}");
-        out
-    }
-
-    fn to_wave_value(&self, wave_type: &WaveType) -> Result<Value, KvError> {
-        let databases_field_type = get_field_type(wave_type, "databases")
-            .ok_or_else(|| KvError::InvalidFormat("Missing databases field type".to_string()))?;
-
+    pub fn to_wave(&self) -> Result<String, KvError> {
         let kv = &*KV_TYPES;
-        let db_values: Result<Vec<_>, _> = self
-            .databases
-            .iter()
-            .map(|db| db.to_wave_value(&kv.database_info_wave_type))
-            .collect();
-
-        let databases_val = Value::make_list(&databases_field_type, db_values?)
-            .map_err(|e| KvError::WaveParse(e.to_string()))?;
-
-        Value::make_record(wave_type, vec![("databases", databases_val)])
-            .map_err(|e| KvError::WaveParse(e.to_string()))
+        let value = wit_core::serde::to_value(self, &kv.database_list_wave_type)?;
+        wit_core::wave_to_string(&value).map_err(|e| KvError::WaveParse(e.to_string()))
     }
 }
 
@@ -717,6 +386,7 @@ impl DatabaseList {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use super::super::version::SemanticVersion;
 
     #[test]
     fn test_stored_value_roundtrip() {

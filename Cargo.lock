@@ -2825,6 +2825,7 @@ name = "wit-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde",
  "thiserror 2.0.17",
  "wasm-wave",
  "wasmtime",
@@ -2854,12 +2855,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "wit-http"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "wasm-wave",
+ "wit-core",
+]
+
+[[package]]
 name = "wit-kv"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "crc32fast",
  "fjall",
+ "serde",
  "thiserror 2.0.17",
  "tracing",
  "wasm-wave",

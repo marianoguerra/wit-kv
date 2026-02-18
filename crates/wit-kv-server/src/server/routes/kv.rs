@@ -58,7 +58,12 @@ pub async fn list_keys(
     info!(count, "listed keys");
 
     match format {
-        ContentFormat::Wave => Ok(FormatResponse::wave(key_list.to_wave()).into_response()),
+        ContentFormat::Wave => {
+            let wave = key_list
+                .to_wave()
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            Ok(FormatResponse::wave(wave).into_response())
+        }
         ContentFormat::Binary => {
             let (buffer, memory) = key_list
                 .encode()
