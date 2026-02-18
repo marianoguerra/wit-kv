@@ -13,4 +13,4 @@ target/
 /dist
 
 # Example build artifacts
-crates/wit-kv/examples/*/Cargo.lock
+crates/wit-run/examples/*/Cargo.lock

@@ -2,6 +2,7 @@
 # Run tasks with: just <target>
 
 mod kv 'crates/wit-kv/justfile'
+mod run 'crates/wit-run/justfile'
 mod server 'crates/wit-kv-server/justfile'
 
 # Default target
@@ -45,7 +46,7 @@ check-tools:
     fi
 
 # Build everything: binaries, client, examples, and playground
-build-all: check-tools build build-wit-ast-js kv::build-examples server::build-playground
+build-all: check-tools build build-wit-ast-js run::build-examples server::build-playground
 
 # Create a self-contained distribution of the entire project
 dist: build-all
@@ -67,11 +68,11 @@ dist: build-all
     # Examples (wasm + wit + src)
     for example in point-filter person-filter sum-scores point-to-magnitude; do
         mkdir -p dist/examples/$example/{wit,src}
-        cp crates/wit-kv/examples/$example/wit/*.wit dist/examples/$example/wit/
-        cp crates/wit-kv/examples/$example/src/*.rs dist/examples/$example/src/
+        cp crates/wit-run/examples/$example/wit/*.wit dist/examples/$example/wit/
+        cp crates/wit-run/examples/$example/src/*.rs dist/examples/$example/src/
         # Copy the built wasm component (underscored name)
         wasm_name=$(echo "$example" | tr '-' '_')
-        cp crates/wit-kv/examples/$example/target/wasm32-unknown-unknown/release/${wasm_name}.wasm \
+        cp crates/wit-run/examples/$example/target/wasm32-unknown-unknown/release/${wasm_name}.wasm \
             dist/examples/$example/
     done
 
@@ -179,7 +180,7 @@ smoke-test-wit-fs: build
     ./crates/wit-fs/scripts/smoke-test.sh release
 
 # Run all smoke tests (usage example + map/reduce examples + unit tests)
-smoke-test: build kv::build-examples
+smoke-test: build run::build-examples
     #!/usr/bin/env bash
     set -e
     echo "========================================"
@@ -199,7 +200,7 @@ smoke-test: build kv::build-examples
     rm -rf /tmp/smoke-test-kv
     mkdir -p /tmp/smoke-test-kv
     ./target/release/wit-kv init --path /tmp/smoke-test-kv
-    ./target/release/wit-kv set-type users --wit crates/wit-kv/examples/sum-scores/wit/reduce.wit --type-name person --path /tmp/smoke-test-kv
+    ./target/release/wit-kv set-type users --wit crates/wit-run/examples/sum-scores/wit/reduce.wit --type-name person --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users alice --value "{age: 30, score: 100}" --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users bob --value "{age: 25, score: 85}" --path /tmp/smoke-test-kv
     ./target/release/wit-kv set users charlie --value "{age: 35, score: 120}" --path /tmp/smoke-test-kv
@@ -207,7 +208,7 @@ smoke-test: build kv::build-examples
 
     echo ">>> Setting up points keyspace for point-filter..."
     ./target/release/wit-kv set-type points \
-        --wit crates/wit-kv/examples/point-filter/wit/map.wit \
+        --wit crates/wit-run/examples/point-filter/wit/map.wit \
         --type-name point \
         --path /tmp/smoke-test-kv
     ./target/release/wit-kv set points p1 --value "{x: 10, y: 20}" --path /tmp/smoke-test-kv
@@ -218,8 +219,8 @@ smoke-test: build kv::build-examples
 
     echo ">>> Testing map with point-filter..."
     OUTPUT=$(./target/release/wit-kv map points \
-        --module ./crates/wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
-        --module-wit ./crates/wit-kv/examples/point-filter/wit/map.wit \
+        --module ./crates/wit-run/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm \
+        --module-wit ./crates/wit-run/examples/point-filter/wit/map.wit \
         --input-type point \
         --path /tmp/smoke-test-kv 2>&1)
     echo "$OUTPUT"
@@ -235,8 +236,8 @@ smoke-test: build kv::build-examples
     echo ">>> Testing map with person-filter..."
     # Reuse the users keyspace (already has person type compatible data)
     OUTPUT=$(./target/release/wit-kv map users \
-        --module ./crates/wit-kv/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm \
-        --module-wit ./crates/wit-kv/examples/person-filter/wit/map.wit \
+        --module ./crates/wit-run/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm \
+        --module-wit ./crates/wit-run/examples/person-filter/wit/map.wit \
         --input-type person \
         --path /tmp/smoke-test-kv 2>&1)
     echo "$OUTPUT"
@@ -251,8 +252,8 @@ smoke-test: build kv::build-examples
 
     echo ">>> Testing reduce with sum-scores..."
     OUTPUT=$(./target/release/wit-kv reduce users \
-        --module ./crates/wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
-        --module-wit ./crates/wit-kv/examples/sum-scores/wit/reduce.wit \
+        --module ./crates/wit-run/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm \
+        --module-wit ./crates/wit-run/examples/sum-scores/wit/reduce.wit \
         --input-type person \
         --state-type total \
         --path /tmp/smoke-test-kv 2>&1)
@@ -268,8 +269,8 @@ smoke-test: build kv::build-examples
 
     echo ">>> Testing map with point-to-magnitude (T -> T1 transformation)..."
     OUTPUT=$(./target/release/wit-kv map points \
-        --module ./crates/wit-kv/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
-        --module-wit ./crates/wit-kv/examples/point-to-magnitude/wit/map.wit \
+        --module ./crates/wit-run/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm \
+        --module-wit ./crates/wit-run/examples/point-to-magnitude/wit/map.wit \
         --input-type point \
         --output-type magnitude \
         --path /tmp/smoke-test-kv 2>&1)
@@ -289,7 +290,7 @@ smoke-test: build kv::build-examples
     echo "========================================"
 
 # Check outdated dependencies for all projects
-check-outdated: check-outdated-root check-outdated-wit-ast kv::check-outdated-examples
+check-outdated: check-outdated-root check-outdated-wit-ast run::check-outdated-examples
 
 # Check outdated dependencies for root project
 check-outdated-root:
@@ -300,7 +301,7 @@ check-outdated-wit-ast:
     cd crates/wit-ast && cargo outdated -R
 
 # Clean build artifacts
-clean: kv::clean-examples server::clean-web
+clean: run::clean-examples server::clean-web
     cargo clean
     rm -rf dist
     rm -rf crates/wit-ast/target

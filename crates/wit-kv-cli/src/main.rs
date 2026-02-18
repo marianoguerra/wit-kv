@@ -656,7 +656,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
             let store = KvStore::open(&path)?;
             let mut runner =
                 TypedRunner::new(&module, &module_wit, &input_type, output_type.as_deref())?;
-            let metadata = store
+            let _metadata = store
                 .get_type(&keyspace)?
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
@@ -674,11 +674,12 @@ fn run(cli: Cli) -> Result<(), AppError> {
             for k in keys {
                 match store.get_raw(&keyspace, &k)? {
                     Some(stored) => {
-                        match runner.call_filter(&stored) {
+                        let tv = wit_kv::TypedValue::from(&stored);
+                        match runner.call_filter(&tv) {
                             Ok(true) => {
-                                match runner.call_transform(&stored, metadata.type_version) {
-                                    Ok(result) => {
-                                        match runner.stored_to_wave_string(&result) {
+                                match runner.call_transform(&tv) {
+                                    Ok(result_tv) => {
+                                        match runner.to_wave_string(&result_tv) {
                                             Ok(wave_str) => println!("{}: {}", k, wave_str),
                                             Err(e) => eprintln!("{}: <decode error: {}>", k, e),
                                         }
@@ -714,7 +715,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
             let store = KvStore::open(&path)?;
             let mut runner =
                 TypedRunner::new(&module, &module_wit, &input_type, Some(&state_type))?;
-            let metadata = store
+            let _metadata = store
                 .get_type(&keyspace)?
                 .ok_or_else(|| AppError::TypeNotFound(keyspace.clone()))?;
 
@@ -727,13 +728,14 @@ fn run(cli: Cli) -> Result<(), AppError> {
                 end.as_deref(),
                 limit,
             )?;
-            let mut state = runner.call_init_state(metadata.type_version)?;
+            let mut state = runner.call_init_state()?;
             let mut stats = ProcessingStats::new();
 
             for k in keys {
                 match store.get_raw(&keyspace, &k)? {
                     Some(stored) => {
-                        match runner.call_reduce(&state, &stored, metadata.type_version) {
+                        let tv = wit_kv::TypedValue::from(&stored);
+                        match runner.call_reduce(&state, &tv) {
                             Ok(new_state) => {
                                 state = new_state;
                                 stats.processed += 1;
@@ -745,7 +747,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
                 }
             }
 
-            match runner.stored_to_wave_string(&state) {
+            match runner.to_wave_string(&state) {
                 Ok(wave_str) => println!("{}", wave_str),
                 Err(e) => eprintln!("<decode error: {}>", e),
             }

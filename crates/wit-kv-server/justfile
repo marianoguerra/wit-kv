@@ -16,10 +16,10 @@ build-playground: build-client
     sed 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js > playground/src/lib/witast/witast.js.tmp && mv playground/src/lib/witast/witast.js.tmp playground/src/lib/witast/witast.js
     # Copy example WASM components to public/wasm
     mkdir -p playground/public/wasm
-    cp ../wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
-    cp ../wit-kv/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
-    cp ../wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
-    cp ../wit-kv/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
+    cp ../wit-run/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
+    cp ../wit-run/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
+    cp ../wit-run/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
+    cp ../wit-run/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
     # Build playground
     cd playground && npm install && npm run build
 
@@ -50,10 +50,10 @@ playground-dev clean="true":
     sed 's/const isNode = typeof process.*//; s/let _fs;//; s/if (isNode) {/if (false) {/; s/_fs = _fs.*//; s/return WebAssembly.compile(await _fs.readFile(url));//' playground/src/lib/witast/witast.js > playground/src/lib/witast/witast.js.tmp && mv playground/src/lib/witast/witast.js.tmp playground/src/lib/witast/witast.js
     # Copy example WASM components to public/wasm
     mkdir -p playground/public/wasm
-    cp ../wit-kv/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
-    cp ../wit-kv/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
-    cp ../wit-kv/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
-    cp ../wit-kv/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
+    cp ../wit-run/examples/point-filter/target/wasm32-unknown-unknown/release/point_filter.wasm playground/public/wasm/
+    cp ../wit-run/examples/person-filter/target/wasm32-unknown-unknown/release/person_filter.wasm playground/public/wasm/
+    cp ../wit-run/examples/sum-scores/target/wasm32-unknown-unknown/release/sum_scores.wasm playground/public/wasm/
+    cp ../wit-run/examples/point-to-magnitude/target/wasm32-unknown-unknown/release/point_to_magnitude.wasm playground/public/wasm/
     # Install deps (use subshell to preserve cwd)
     (cd playground && npm install)
     # Clean playground data if requested

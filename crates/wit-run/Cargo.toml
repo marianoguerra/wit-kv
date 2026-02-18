@@ -1,0 +1,23 @@
+[package]
+name = "wit-run"
+version.workspace = true
+edition.workspace = true
+description = "Run WebAssembly components on WIT-typed values"
+keywords = ["wasm", "wit", "component-model", "runner"]
+categories = ["wasm"]
+
+[features]
+default = []
+logging = ["dep:tracing"]
+
+[dependencies]
+wit-core = { workspace = true, features = ["val"] }
+wasmtime.workspace = true
+wit-parser.workspace = true
+wasm-wave.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing = { workspace = true, optional = true }
+
+[lints]
+workspace = true

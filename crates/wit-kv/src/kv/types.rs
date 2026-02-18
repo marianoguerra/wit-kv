@@ -36,6 +36,22 @@ impl StoredValue {
             memory,
         }
     }
+
+    /// Create a StoredValue from a TypedValue and a type version.
+    #[cfg(feature = "wasm")]
+    pub fn from_typed(tv: wit_run::TypedValue, type_version: SemanticVersion) -> Self {
+        Self::new(type_version, tv.value, tv.memory)
+    }
+}
+
+#[cfg(feature = "wasm")]
+impl From<&StoredValue> for wit_run::TypedValue {
+    fn from(stored: &StoredValue) -> Self {
+        Self {
+            value: stored.value.clone(),
+            memory: stored.memory.clone(),
+        }
+    }
 }
 
 /// Keyspace type metadata.

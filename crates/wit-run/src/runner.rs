@@ -1,6 +1,6 @@
 //! Typed WebAssembly Component runner.
 //!
-//! This module provides a runner for typed map/reduce operations where
+//! This module provides a runner for typed WASM operations where
 //! components receive actual WIT types.
 //!
 //! ## Example
@@ -9,11 +9,11 @@
 //! // Component WIT defines: filter: func(value: point) -> bool
 //! let runner = TypedRunner::new(&component_path, &wit_path, "point")?;
 //!
-//! // Convert stored value to typed Val
-//! let point_val = runner.stored_to_val(&stored_value)?;
+//! // Convert input value to typed Val
+//! let point_val = runner.input_to_val(&typed_value)?;
 //!
 //! // Call with typed value
-//! let result = runner.call_filter(&point_val)?;
+//! let result = runner.call_filter(&typed_value)?;
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -23,17 +23,16 @@ use wasmtime::component::{Component, Func, Instance, Linker, Val};
 use wasmtime::{Config, Engine, Store};
 use wit_parser::{Resolve, TypeId};
 
-use super::error::WasmError;
-use crate::find_type_by_name;
-use crate::kv::{SemanticVersion, StoredValue};
+use crate::error::RunError;
 use crate::logging::{debug, error, info, trace};
-use wit_core::{CanonicalAbi, LinearMemory};
+use crate::value::TypedValue;
+use wit_core::{CanonicalAbi, LinearMemory, find_type_by_name};
 
 // Re-export val conversion functions from wit_core
-pub use wit_core::{val_to_wave, wave_to_val};
+pub(crate) use wit_core::val_to_wave;
 
 /// Create a placeholder Val for function results based on type.
-pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
+pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, RunError> {
     match ty {
         types::Type::Bool => Ok(Val::Bool(false)),
         types::Type::U8 => Ok(Val::U8(0)),
@@ -49,7 +48,7 @@ pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
         types::Type::Char => Ok(Val::Char('\0')),
         types::Type::String => Ok(Val::String(String::new())),
         types::Type::Record(record_type) => {
-            let fields: Result<Vec<_>, WasmError> = record_type
+            let fields: Result<Vec<_>, RunError> = record_type
                 .fields()
                 .map(|f| {
                     let val = create_placeholder_val(&f.ty)?;
@@ -61,14 +60,14 @@ pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
         types::Type::List(_) => Ok(Val::List(vec![])),
         types::Type::Option(_) => Ok(Val::Option(None)),
         types::Type::Tuple(tuple_type) => {
-            let elements: Result<Vec<_>, WasmError> = tuple_type
+            let elements: Result<Vec<_>, RunError> = tuple_type
                 .types()
                 .map(|ty| create_placeholder_val(&ty))
                 .collect();
             Ok(Val::Tuple(elements?))
         }
-        _ => Err(WasmError::TypeMismatch {
-            keyspace_type: "cannot create placeholder for type".to_string(),
+        _ => Err(RunError::TypeMismatch {
+            message: "cannot create placeholder for type".to_string(),
         }),
     }
 }
@@ -78,7 +77,7 @@ pub fn create_placeholder_val(ty: &types::Type) -> Result<Val, WasmError> {
 /// # Example
 ///
 /// ```ignore
-/// use wit_kv::TypedRunner;
+/// use wit_run::TypedRunner;
 ///
 /// // Simple usage with same input/output type
 /// let runner = TypedRunner::builder()
@@ -172,19 +171,19 @@ impl TypedRunnerBuilder {
     /// - The component file cannot be loaded
     /// - The WIT file cannot be parsed
     /// - The specified types are not found in the WIT file
-    pub fn build(self) -> Result<TypedRunner, WasmError> {
+    pub fn build(self) -> Result<TypedRunner, RunError> {
         // Get component bytes from path or direct bytes
         let component_bytes = match (self.component_path, self.component_bytes) {
             (Some(path), None) => std::fs::read(&path)?,
             (None, Some(bytes)) => bytes,
             (None, None) => {
-                return Err(WasmError::TypeMismatch {
-                    keyspace_type: "component path or bytes is required".to_string(),
+                return Err(RunError::TypeMismatch {
+                    message: "component path or bytes is required".to_string(),
                 });
             }
             (Some(_), Some(_)) => {
-                return Err(WasmError::TypeMismatch {
-                    keyspace_type: "provide either component path or bytes, not both".to_string(),
+                return Err(RunError::TypeMismatch {
+                    message: "provide either component path or bytes, not both".to_string(),
                 });
             }
         };
@@ -199,21 +198,21 @@ impl TypedRunnerBuilder {
                 resolve.push_str("<inline>", &text)?;
             }
             (None, None) => {
-                return Err(WasmError::TypeMismatch {
-                    keyspace_type: "WIT path or text is required".to_string(),
+                return Err(RunError::TypeMismatch {
+                    message: "WIT path or text is required".to_string(),
                 });
             }
             (Some(_), Some(_)) => {
-                return Err(WasmError::TypeMismatch {
-                    keyspace_type: "provide either WIT path or text, not both".to_string(),
+                return Err(RunError::TypeMismatch {
+                    message: "provide either WIT path or text, not both".to_string(),
                 });
             }
         };
 
         let input_type_name = self
             .input_type_name
-            .ok_or_else(|| WasmError::TypeMismatch {
-                keyspace_type: "input type name is required".to_string(),
+            .ok_or_else(|| RunError::TypeMismatch {
+                message: "input type name is required".to_string(),
             })?;
 
         let output_type_name = self.output_type_name;
@@ -237,7 +236,7 @@ impl TypedRunnerBuilder {
 /// Using the builder pattern (recommended):
 ///
 /// ```ignore
-/// use wit_kv::TypedRunner;
+/// use wit_run::TypedRunner;
 ///
 /// let runner = TypedRunner::builder()
 ///     .component("filter.wasm")
@@ -246,7 +245,7 @@ impl TypedRunnerBuilder {
 ///     .build()?;
 ///
 /// // Use the runner for filter/transform operations
-/// let passes = runner.call_filter(&stored_value)?;
+/// let passes = runner.call_filter(&typed_value)?;
 /// ```
 ///
 /// Using the direct constructor:
@@ -301,23 +300,23 @@ impl TypedRunner {
         wit_path: impl AsRef<Path>,
         input_type_name: &str,
         output_type_name: Option<&str>,
-    ) -> Result<Self, WasmError> {
+    ) -> Result<Self, RunError> {
         // Load WIT definitions
         let mut resolve = Resolve::new();
         resolve.push_path(wit_path)?;
 
         // Find input type
         let input_type_id = find_type_by_name(&resolve, input_type_name).ok_or_else(|| {
-            WasmError::TypeMismatch {
-                keyspace_type: format!("input type '{}' not found in WIT", input_type_name),
+            RunError::TypeMismatch {
+                message: format!("input type '{}' not found in WIT", input_type_name),
             }
         })?;
 
         // Find output type (defaults to input type)
         let output_type_name = output_type_name.unwrap_or(input_type_name);
         let output_type_id = find_type_by_name(&resolve, output_type_name).ok_or_else(|| {
-            WasmError::TypeMismatch {
-                keyspace_type: format!("output type '{}' not found in WIT", output_type_name),
+            RunError::TypeMismatch {
+                message: format!("output type '{}' not found in WIT", output_type_name),
             }
         })?;
 
@@ -361,7 +360,7 @@ impl TypedRunner {
         resolve: Resolve,
         input_type_name: &str,
         output_type_name: Option<&str>,
-    ) -> Result<Self, WasmError> {
+    ) -> Result<Self, RunError> {
         debug!(
             component_size = component_bytes.len(),
             input_type = input_type_name,
@@ -372,8 +371,8 @@ impl TypedRunner {
         // Find input type
         let input_type_id = find_type_by_name(&resolve, input_type_name).ok_or_else(|| {
             error!(type_name = input_type_name, "input type not found in WIT");
-            WasmError::TypeMismatch {
-                keyspace_type: format!("input type '{}' not found in WIT", input_type_name),
+            RunError::TypeMismatch {
+                message: format!("input type '{}' not found in WIT", input_type_name),
             }
         })?;
 
@@ -381,8 +380,8 @@ impl TypedRunner {
         let output_type_name = output_type_name.unwrap_or(input_type_name);
         let output_type_id = find_type_by_name(&resolve, output_type_name).ok_or_else(|| {
             error!(type_name = output_type_name, "output type not found in WIT");
-            WasmError::TypeMismatch {
-                keyspace_type: format!("output type '{}' not found in WIT", output_type_name),
+            RunError::TypeMismatch {
+                message: format!("output type '{}' not found in WIT", output_type_name),
             }
         })?;
 
@@ -422,24 +421,24 @@ impl TypedRunner {
     }
 
     /// Get the input type wave representation.
-    pub fn input_wave_type(&self) -> Result<wasm_wave::value::Type, WasmError> {
-        crate::resolve_wit_type(&self.resolve, self.input_type_id).map_err(|e| {
-            WasmError::TypeMismatch {
-                keyspace_type: format!("failed to resolve input type: {}", e),
+    pub fn input_wave_type(&self) -> Result<wasm_wave::value::Type, RunError> {
+        wasm_wave::value::resolve_wit_type(&self.resolve, self.input_type_id).map_err(|e| {
+            RunError::TypeMismatch {
+                message: format!("failed to resolve input type: {}", e),
             }
         })
     }
 
     /// Get the output type wave representation.
-    pub fn output_wave_type(&self) -> Result<wasm_wave::value::Type, WasmError> {
-        crate::resolve_wit_type(&self.resolve, self.output_type_id).map_err(|e| {
-            WasmError::TypeMismatch {
-                keyspace_type: format!("failed to resolve output type: {}", e),
+    pub fn output_wave_type(&self) -> Result<wasm_wave::value::Type, RunError> {
+        wasm_wave::value::resolve_wit_type(&self.resolve, self.output_type_id).map_err(|e| {
+            RunError::TypeMismatch {
+                message: format!("failed to resolve output type: {}", e),
             }
         })
     }
 
-    /// Convert a StoredValue (output type) to a WAVE-encoded string.
+    /// Convert a TypedValue (output type) to a WAVE-encoded string.
     ///
     /// This performs the full conversion pipeline:
     /// 1. Lifts binary data to wasmtime Val
@@ -447,13 +446,13 @@ impl TypedRunner {
     /// 3. Serializes to WAVE string format
     ///
     /// This is useful for displaying transform/reduce results.
-    pub fn stored_to_wave_string(&self, stored: &StoredValue) -> Result<String, WasmError> {
+    pub fn to_wave_string(&self, typed: &TypedValue) -> Result<String, RunError> {
         let wave_type = self.output_wave_type()?;
         let abi = CanonicalAbi::new(&self.resolve);
-        let memory = LinearMemory::from_optional(stored.memory.as_ref());
+        let memory = LinearMemory::from_optional(typed.memory.as_ref());
 
         let (val, _) = abi.lift_to_val(
-            &stored.value,
+            &typed.value,
             &wit_parser::Type::Id(self.output_type_id),
             None,
             &memory,
@@ -461,23 +460,23 @@ impl TypedRunner {
 
         let wave_value = val_to_wave(&val, &wave_type)?;
 
-        wasm_wave::to_string(&wave_value).map_err(|e| WasmError::TypeMismatch {
-            keyspace_type: format!("failed to encode WAVE string: {}", e),
+        wasm_wave::to_string(&wave_value).map_err(|e| RunError::TypeMismatch {
+            message: format!("failed to encode WAVE string: {}", e),
         })
     }
 
-    /// Convert a StoredValue to a typed Val for function calls.
+    /// Convert a TypedValue to a typed Val for function calls.
     /// Uses direct binary -> Val conversion (hot path, bypasses wasm_wave::Value).
-    pub fn stored_to_val(
+    pub fn input_to_val(
         &self,
-        stored: &StoredValue,
+        typed: &TypedValue,
         func_param_type: &types::Type,
-    ) -> Result<Val, WasmError> {
-        let memory = LinearMemory::from_optional(stored.memory.as_ref());
+    ) -> Result<Val, RunError> {
+        let memory = LinearMemory::from_optional(typed.memory.as_ref());
 
         let abi = CanonicalAbi::new(&self.resolve);
         let (val, _) = abi.lift_to_val(
-            &stored.value,
+            &typed.value,
             &wit_parser::Type::Id(self.input_type_id),
             Some(func_param_type),
             &memory,
@@ -486,40 +485,35 @@ impl TypedRunner {
         Ok(val)
     }
 
-    /// Convert a typed Val result back to StoredValue.
+    /// Convert a typed Val result back to TypedValue.
     /// Uses direct Val -> binary conversion (hot path, bypasses wasm_wave::Value).
-    pub fn val_to_stored(
-        &self,
-        val: &Val,
-        type_version: SemanticVersion,
-    ) -> Result<StoredValue, WasmError> {
+    pub fn val_to_typed(&self, val: &Val) -> Result<TypedValue, RunError> {
         let mut memory = LinearMemory::new();
         let abi = CanonicalAbi::new(&self.resolve);
         let buffer =
             abi.lower_from_val(val, &wit_parser::Type::Id(self.output_type_id), &mut memory)?;
 
-        Ok(StoredValue::new(
-            type_version,
-            buffer,
-            if memory.is_empty() {
+        Ok(TypedValue {
+            value: buffer,
+            memory: if memory.is_empty() {
                 None
             } else {
                 Some(memory.into_bytes())
             },
-        ))
+        })
     }
 
     /// Get a function by name from the component instance.
-    fn get_func(&mut self, name: &str) -> Result<Func, WasmError> {
+    fn get_func(&mut self, name: &str) -> Result<Func, RunError> {
         self.instance
             .get_func(&mut self.store, name)
-            .ok_or_else(|| WasmError::FunctionNotFound(name.to_string()))
+            .ok_or_else(|| RunError::FunctionNotFound(name.to_string()))
     }
 
     /// Call the `filter` function with a typed value.
     ///
     /// The filter function should have signature: `filter(value: T) -> bool`
-    pub fn call_filter(&mut self, stored: &StoredValue) -> Result<bool, WasmError> {
+    pub fn call_filter(&mut self, typed: &TypedValue) -> Result<bool, RunError> {
         debug!("calling filter function");
         let func = self.get_func("filter")?;
 
@@ -529,25 +523,25 @@ impl TypedRunner {
             func_type
                 .params()
                 .next()
-                .ok_or_else(|| WasmError::InvalidReturnType {
+                .ok_or_else(|| RunError::InvalidReturnType {
                     expected: "filter function should have 1 parameter".to_string(),
                 })?;
 
-        // Convert stored value to wasmtime Val
-        trace!("converting stored value to Val");
-        let input_val = self.stored_to_val(stored, &param_type)?;
+        // Convert typed value to wasmtime Val
+        trace!("converting typed value to Val");
+        let input_val = self.input_to_val(typed, &param_type)?;
 
         // Call function
         let mut results = vec![Val::Bool(false)];
         func.call(&mut self.store, &[input_val], &mut results)
             .map_err(|e| {
                 error!(error = %e, "filter function trap");
-                WasmError::Trap(e.to_string())
+                RunError::Trap(e.to_string())
             })?;
 
         func.post_return(&mut self.store).map_err(|e| {
             error!(error = %e, "filter post_return failed");
-            WasmError::Trap(format!("post_return failed: {}", e))
+            RunError::Trap(format!("post_return failed: {}", e))
         })?;
 
         match results.first() {
@@ -557,13 +551,13 @@ impl TypedRunner {
             }
             Some(other) => {
                 error!(result = ?other, "filter returned unexpected type");
-                Err(WasmError::InvalidReturnType {
+                Err(RunError::InvalidReturnType {
                     expected: format!("bool, got {:?}", other),
                 })
             }
             None => {
                 error!("filter returned no result");
-                Err(WasmError::InvalidReturnType {
+                Err(RunError::InvalidReturnType {
                     expected: "bool, got no result".to_string(),
                 })
             }
@@ -573,11 +567,7 @@ impl TypedRunner {
     /// Call the `transform` function with a typed value.
     ///
     /// The transform function should have signature: `transform(value: T) -> T1`
-    pub fn call_transform(
-        &mut self,
-        stored: &StoredValue,
-        type_version: SemanticVersion,
-    ) -> Result<StoredValue, WasmError> {
+    pub fn call_transform(&mut self, typed: &TypedValue) -> Result<TypedValue, RunError> {
         debug!("calling transform function");
         let func = self.get_func("transform")?;
 
@@ -587,7 +577,7 @@ impl TypedRunner {
             func_type
                 .params()
                 .next()
-                .ok_or_else(|| WasmError::InvalidReturnType {
+                .ok_or_else(|| RunError::InvalidReturnType {
                     expected: "transform function should have 1 parameter".to_string(),
                 })?;
 
@@ -595,13 +585,13 @@ impl TypedRunner {
             func_type
                 .results()
                 .next()
-                .ok_or_else(|| WasmError::InvalidReturnType {
+                .ok_or_else(|| RunError::InvalidReturnType {
                     expected: "transform function should have 1 result".to_string(),
                 })?;
 
         // Convert input
-        trace!("converting stored value to Val");
-        let input_val = self.stored_to_val(stored, &param_type)?;
+        trace!("converting typed value to Val");
+        let input_val = self.input_to_val(typed, &param_type)?;
 
         // Create result placeholder
         let mut results = vec![create_placeholder_val(&result_type)?];
@@ -610,22 +600,22 @@ impl TypedRunner {
         func.call(&mut self.store, &[input_val], &mut results)
             .map_err(|e| {
                 error!(error = %e, "transform function trap");
-                WasmError::Trap(e.to_string())
+                RunError::Trap(e.to_string())
             })?;
 
-        // Convert result to StoredValue
+        // Convert result to TypedValue
         let result_val = results.first().ok_or_else(|| {
             error!("transform returned no result");
-            WasmError::InvalidReturnType {
+            RunError::InvalidReturnType {
                 expected: "transform function should return a value".to_string(),
             }
         })?;
-        trace!("converting result Val to StoredValue");
-        let output = self.val_to_stored(result_val, type_version)?;
+        trace!("converting result Val to TypedValue");
+        let output = self.val_to_typed(result_val)?;
 
         func.post_return(&mut self.store).map_err(|e| {
             error!(error = %e, "transform post_return failed");
-            WasmError::Trap(format!("post_return failed: {}", e))
+            RunError::Trap(format!("post_return failed: {}", e))
         })?;
 
         debug!("transform function completed");
@@ -640,10 +630,7 @@ impl TypedRunner {
     /// Call the `init-state` function to get the initial reduce state.
     ///
     /// The init-state function should have signature: `init-state() -> StateType`
-    pub fn call_init_state(
-        &mut self,
-        type_version: SemanticVersion,
-    ) -> Result<StoredValue, WasmError> {
+    pub fn call_init_state(&mut self) -> Result<TypedValue, RunError> {
         debug!("calling init-state function");
         let func = self.get_func("init-state")?;
 
@@ -653,7 +640,7 @@ impl TypedRunner {
             func_type
                 .results()
                 .next()
-                .ok_or_else(|| WasmError::InvalidReturnType {
+                .ok_or_else(|| RunError::InvalidReturnType {
                     expected: "init-state function should have 1 result".to_string(),
                 })?;
 
@@ -663,42 +650,42 @@ impl TypedRunner {
         // Call function (no parameters)
         func.call(&mut self.store, &[], &mut results).map_err(|e| {
             error!(error = %e, "init-state function trap");
-            WasmError::Trap(e.to_string())
+            RunError::Trap(e.to_string())
         })?;
 
-        // Convert result to StoredValue using output_type (which is the state type)
+        // Convert result to TypedValue using output_type (which is the state type)
         let result_val = results.first().ok_or_else(|| {
             error!("init-state returned no result");
-            WasmError::InvalidReturnType {
+            RunError::InvalidReturnType {
                 expected: "init-state function should return a value".to_string(),
             }
         })?;
-        trace!("converting result Val to StoredValue");
-        let output = self.val_to_stored(result_val, type_version)?;
+        trace!("converting result Val to TypedValue");
+        let output = self.val_to_typed(result_val)?;
 
         func.post_return(&mut self.store).map_err(|e| {
             error!(error = %e, "init-state post_return failed");
-            WasmError::Trap(format!("post_return failed: {}", e))
+            RunError::Trap(format!("post_return failed: {}", e))
         })?;
 
         debug!("init-state function completed");
         Ok(output)
     }
 
-    /// Convert a state StoredValue to a typed Val for reduce calls.
+    /// Convert a state TypedValue to a typed Val for reduce calls.
     /// Uses direct binary -> Val conversion (hot path, bypasses wasm_wave::Value).
     ///
     /// This uses the output_type_id (state type) for conversion.
     pub fn state_to_val(
         &self,
-        stored: &StoredValue,
+        typed: &TypedValue,
         func_param_type: &types::Type,
-    ) -> Result<Val, WasmError> {
-        let memory = LinearMemory::from_optional(stored.memory.as_ref());
+    ) -> Result<Val, RunError> {
+        let memory = LinearMemory::from_optional(typed.memory.as_ref());
 
         let abi = CanonicalAbi::new(&self.resolve);
         let (val, _) = abi.lift_to_val(
-            &stored.value,
+            &typed.value,
             &wit_parser::Type::Id(self.output_type_id), // Use output_type for state
             Some(func_param_type),
             &memory,
@@ -712,10 +699,9 @@ impl TypedRunner {
     /// The reduce function should have signature: `reduce(state: StateType, value: T) -> StateType`
     pub fn call_reduce(
         &mut self,
-        state: &StoredValue,
-        value: &StoredValue,
-        type_version: SemanticVersion,
-    ) -> Result<StoredValue, WasmError> {
+        state: &TypedValue,
+        value: &TypedValue,
+    ) -> Result<TypedValue, RunError> {
         debug!("calling reduce function");
         let func = self.get_func("reduce")?;
 
@@ -723,11 +709,11 @@ impl TypedRunner {
         let func_type = func.ty(&self.store);
         let mut params = func_type.params();
 
-        let (_, state_param_type) = params.next().ok_or_else(|| WasmError::InvalidReturnType {
+        let (_, state_param_type) = params.next().ok_or_else(|| RunError::InvalidReturnType {
             expected: "reduce function should have 2 parameters (state, value)".to_string(),
         })?;
 
-        let (_, value_param_type) = params.next().ok_or_else(|| WasmError::InvalidReturnType {
+        let (_, value_param_type) = params.next().ok_or_else(|| RunError::InvalidReturnType {
             expected: "reduce function should have 2 parameters (state, value)".to_string(),
         })?;
 
@@ -735,14 +721,14 @@ impl TypedRunner {
             func_type
                 .results()
                 .next()
-                .ok_or_else(|| WasmError::InvalidReturnType {
+                .ok_or_else(|| RunError::InvalidReturnType {
                     expected: "reduce function should have 1 result".to_string(),
                 })?;
 
         // Convert state and value to wasmtime Vals
         trace!("converting state and value to Vals");
         let state_val = self.state_to_val(state, &state_param_type)?;
-        let value_val = self.stored_to_val(value, &value_param_type)?;
+        let value_val = self.input_to_val(value, &value_param_type)?;
 
         // Create result placeholder
         let mut results = vec![create_placeholder_val(&result_type)?];
@@ -751,22 +737,22 @@ impl TypedRunner {
         func.call(&mut self.store, &[state_val, value_val], &mut results)
             .map_err(|e| {
                 error!(error = %e, "reduce function trap");
-                WasmError::Trap(e.to_string())
+                RunError::Trap(e.to_string())
             })?;
 
-        // Convert result to StoredValue
+        // Convert result to TypedValue
         let result_val = results.first().ok_or_else(|| {
             error!("reduce returned no result");
-            WasmError::InvalidReturnType {
+            RunError::InvalidReturnType {
                 expected: "reduce function should return a value".to_string(),
             }
         })?;
-        trace!("converting result Val to StoredValue");
-        let output = self.val_to_stored(result_val, type_version)?;
+        trace!("converting result Val to TypedValue");
+        let output = self.val_to_typed(result_val)?;
 
         func.post_return(&mut self.store).map_err(|e| {
             error!(error = %e, "reduce post_return failed");
-            WasmError::Trap(format!("post_return failed: {}", e))
+            RunError::Trap(format!("post_return failed: {}", e))
         })?;
 
         debug!("reduce function completed");

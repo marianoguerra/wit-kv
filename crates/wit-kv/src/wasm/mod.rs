@@ -1,16 +1,9 @@
 //! WebAssembly module execution for map/reduce operations.
 //!
-//! This module provides functionality to execute WebAssembly Components
-//! that implement typed map/reduce operations.
-//!
-//! Components receive actual WIT types with direct field access.
-//! The `TypedRunner` handles type conversion between stored values and
-//! component interfaces, used by the `map` and `reduce` commands.
+//! This module re-exports types from the `wit-run` crate, providing
+//! backward compatibility for existing consumers of `wit-kv`.
 
-mod error;
-mod typed_runner;
-
-pub use error::WasmError;
-pub use typed_runner::{
-    TypedRunner, TypedRunnerBuilder, create_placeholder_val, val_to_wave, wave_to_val,
+pub use wit_run::{
+    RunError as WasmError, TypedRunner, TypedRunnerBuilder, TypedValue, ValConvertError,
+    create_placeholder_val, val_to_wave, wave_to_val,
 };

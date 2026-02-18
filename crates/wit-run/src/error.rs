@@ -1,12 +1,12 @@
-//! Error types for WebAssembly module execution.
+//! Error types for WebAssembly component execution.
 
 use thiserror::Error;
 
 use wit_core::{CanonicalAbiError, ValConvertError};
 
-/// Errors that can occur during WebAssembly module execution.
+/// Errors that can occur during WebAssembly component execution.
 #[derive(Error, Debug)]
-pub enum WasmError {
+pub enum RunError {
     /// Failed to load the WebAssembly module file.
     #[error("Failed to load wasm module: {0}")]
     ModuleLoad(#[from] std::io::Error),
@@ -35,13 +35,9 @@ pub enum WasmError {
     #[error("Wasm execution trapped: {0}")]
     Trap(String),
 
-    /// Type mismatch between keyspace type and module expectations.
-    #[error("Type mismatch: keyspace type '{keyspace_type}' incompatible with module")]
-    TypeMismatch { keyspace_type: String },
-
-    /// KV store error during iteration.
-    #[error("KV store error: {0}")]
-    KvError(#[from] crate::kv::KvError),
+    /// Type mismatch between expected and actual types.
+    #[error("Type mismatch: {message}")]
+    TypeMismatch { message: String },
 
     /// Component encoding error.
     #[error("Component encoding error: {0}")]

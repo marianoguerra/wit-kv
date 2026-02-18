@@ -230,8 +230,8 @@ pub async fn map_operation(
         .build()
         .map_err(ApiError::from)?;
 
-    // Get keyspace metadata for type version
-    let metadata = store
+    // Verify keyspace exists
+    let _metadata = store
         .get_type(&keyspace)?
         .ok_or_else(|| ApiError::keyspace_not_found(&database, &keyspace))?;
 
@@ -248,13 +248,14 @@ pub async fn map_operation(
     for key in keys {
         match store.get_raw(&keyspace, &key)? {
             Some(stored) => {
+                let tv = wit_kv::TypedValue::from(&stored);
                 // Call filter
-                match runner.call_filter(&stored) {
+                match runner.call_filter(&tv) {
                     Ok(true) => {
                         // Call transform
-                        match runner.call_transform(&stored, metadata.type_version) {
-                            Ok(result) => {
-                                match runner.stored_to_wave_string(&result) {
+                        match runner.call_transform(&tv) {
+                            Ok(result_tv) => {
+                                match runner.to_wave_string(&result_tv) {
                                     Ok(wave_str) => results.push((key.clone(), wave_str)),
                                     Err(e) => errors.push((key.clone(), format!("encode: {}", e))),
                                 }
@@ -338,8 +339,8 @@ pub async fn reduce_operation(
         .build()
         .map_err(ApiError::from)?;
 
-    // Get keyspace metadata for type version
-    let metadata = store
+    // Verify keyspace exists
+    let _metadata = store
         .get_type(&keyspace)?
         .ok_or_else(|| ApiError::keyspace_not_found(&database, &keyspace))?;
 
@@ -348,7 +349,7 @@ pub async fn reduce_operation(
 
     // Initialize state
     let mut current_state = runner
-        .call_init_state(metadata.type_version)
+        .call_init_state()
         .map_err(ApiError::from)?;
 
     let mut processed: u32 = 0;
@@ -357,7 +358,8 @@ pub async fn reduce_operation(
     for key in keys {
         match store.get_raw(&keyspace, &key)? {
             Some(stored) => {
-                match runner.call_reduce(&current_state, &stored, metadata.type_version) {
+                let tv = wit_kv::TypedValue::from(&stored);
+                match runner.call_reduce(&current_state, &tv) {
                     Ok(new_state) => {
                         current_state = new_state;
                         processed += 1;
@@ -375,7 +377,7 @@ pub async fn reduce_operation(
 
     // Convert final state to WAVE string
     let state_str = runner
-        .stored_to_wave_string(&current_state)
+        .to_wave_string(&current_state)
         .map_err(|e| ApiError::internal(format!("encode: {}", e)))?;
 
     let error_count = errors.len() as u32;

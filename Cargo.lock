@@ -2882,9 +2882,9 @@ dependencies = [
  "thiserror 2.0.17",
  "tracing",
  "wasm-wave",
- "wasmtime",
  "wit-core",
  "wit-parser 0.244.0",
+ "wit-run",
 ]
 
 [[package]]
@@ -2949,6 +2949,19 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser 0.244.0",
+]
+
+[[package]]
+name = "wit-run"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "thiserror 2.0.17",
+ "tracing",
+ "wasm-wave",
+ "wasmtime",
+ "wit-core",
+ "wit-parser 0.244.0",
 ]
 
 [[package]]

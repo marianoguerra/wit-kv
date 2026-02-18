@@ -236,8 +236,8 @@ impl From<WasmError> for ApiError {
                 Self::wasm_error(format!("Invalid return type: expected {}", expected))
             }
             WasmError::Trap(msg) => Self::wasm_error(format!("WASM execution error: {}", msg)),
-            WasmError::TypeMismatch { keyspace_type } => {
-                Self::wasm_error(format!("Type mismatch: {}", keyspace_type))
+            WasmError::TypeMismatch { message } => {
+                Self::wasm_error(format!("Type mismatch: {}", message))
             }
             WasmError::ModuleLoad(io_err) => {
                 Self::wasm_error(format!("Failed to load module: {}", io_err))

@@ -9,7 +9,7 @@ use thiserror::Error;
 #[cfg(feature = "kv")]
 use crate::kv::KvError;
 #[cfg(feature = "wasm")]
-use crate::wasm::WasmError;
+use wit_run::RunError;
 use wit_core::CanonicalAbiError;
 
 /// Unified error type for all wit-kv operations.
@@ -42,7 +42,7 @@ pub enum Error {
     /// Error from WebAssembly component execution.
     #[cfg(feature = "wasm")]
     #[error(transparent)]
-    Wasm(#[from] WasmError),
+    Wasm(#[from] RunError),
 
     /// I/O error.
     #[error("I/O error: {0}")]
