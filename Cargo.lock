@@ -2869,6 +2869,7 @@ dependencies = [
  "tracing-subscriber",
  "wasm-wave",
  "wit-core",
+ "wit-run",
 ]
 
 [[package]]

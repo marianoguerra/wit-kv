@@ -53,3 +53,9 @@ pub use http::mount::{MountConfig, mount_resource};
 
 // Re-export wit-core serde for direct Value conversions if needed.
 pub use wit_core::serde as wit_serde;
+
+// Re-export wit-run types when the `run` feature is enabled.
+#[cfg(feature = "run")]
+pub use content::typed_value::{from_typed_value, to_typed_value};
+#[cfg(feature = "run")]
+pub use wit_run::{RunError, TypedRunner, TypedRunnerBuilder, TypedValue};

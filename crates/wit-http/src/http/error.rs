@@ -79,6 +79,17 @@ impl From<ContentFormatError> for ApiError {
     }
 }
 
+#[cfg(feature = "run")]
+impl From<wit_run::RunError> for ApiError {
+    fn from(err: wit_run::RunError) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "WASM_ERROR",
+            message: err.to_string(),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         if self.status.is_server_error() {
