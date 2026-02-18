@@ -15,7 +15,7 @@ use super::schema::SchemaCache;
 use super::store::Store;
 use super::validate::{validate_binary, validate_wave};
 
-const TTL: Duration = Duration::from_secs(1);
+const TTL: Duration = Duration::ZERO;
 const BLOCK_SIZE: u32 = 512;
 const GEN: Generation = Generation(0);
 

@@ -17,13 +17,20 @@ FS_PID=""
 
 cleanup() {
     if [ -n "$FS_PID" ] && kill -0 "$FS_PID" 2>/dev/null; then
-        # Unmount first, then kill
-        umount "$MOUNTPOINT" 2>/dev/null || diskutil unmount "$MOUNTPOINT" 2>/dev/null || true
-        sleep 1
+        # Send SIGTERM and let fuser handle the unmount cleanly via Session::Drop.
+        # Doing an external umount first would cause fuser to attempt a second
+        # umount, producing: WARN fuser::session: Failed to umount filesystem: EINVAL
         kill "$FS_PID" 2>/dev/null || true
         wait "$FS_PID" 2>/dev/null || true
     fi
-    rm -rf "$BACKING" "$MOUNTPOINT"
+    rm -rf "$BACKING"
+    # macOS may take a moment to fully release a FUSE mountpoint after unmount.
+    local retries=10
+    while [ $retries -gt 0 ] && [ -e "$MOUNTPOINT" ]; do
+        rm -rf "$MOUNTPOINT" 2>/dev/null && break
+        sleep 0.5
+        retries=$((retries - 1))
+    done
 }
 
 pass() {
