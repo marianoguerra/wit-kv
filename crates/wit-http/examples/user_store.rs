@@ -6,23 +6,42 @@
 //!     cargo run --example user_store -p wit-http
 //!
 //! Then test with curl:
-//!     # Create a user
+//!     # Create a user (WAVE text)
 //!     curl -X PUT http://localhost:3000/api/v1/users/alice \
 //!       -H 'Content-Type: application/x-wasm-wave' \
 //!       -d '{name: "Alice", email: "alice@example.com", age: 30}'
 //!
+//!     # Create a user (binary via wit-file)
+//!     wit-file write --wit user.wit -t user -o alice.bin \
+//!       --value '{name: "Alice", email: "alice@example.com", age: 30}'
+//!     curl -X PUT http://localhost:3000/api/v1/users/alice \
+//!       -H 'Content-Type: application/octet-stream' \
+//!       --data-binary @alice.bin
+//!
 //!     # Get a user (WAVE text)
 //!     curl http://localhost:3000/api/v1/users/alice
 //!
-//!     # Get a user (binary)
-//!     curl http://localhost:3000/api/v1/users/alice \
-//!       -H 'Accept: application/octet-stream' --output -
+//!     # Get a user (binary) and decode with wit-file
+//!     curl -s http://localhost:3000/api/v1/users/alice \
+//!       -H 'Accept: application/octet-stream' -o alice.bin
+//!     wit-file read --wit user.wit -t user alice.bin
 //!
 //!     # List all users
 //!     curl http://localhost:3000/api/v1/users
 //!
 //!     # Delete a user
 //!     curl -X DELETE http://localhost:3000/api/v1/users/alice
+//!
+//! The `user.wit` file for wit-file should contain the type definition:
+//!
+//!     package example:types;
+//!     interface types {
+//!         record user {
+//!             name: string,
+//!             email: string,
+//!             age: u32,
+//!         }
+//!     }
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
